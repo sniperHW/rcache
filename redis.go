@@ -52,7 +52,7 @@ var scriptGetSha string
 const scriptClearDirty string = `
 	redis.call('select',1)
 	local version = redis.call('hget',KEYS[1],'version')
-	if tonumber(version) == ARGV[1] then
+	if tonumber(version) == tonumber(ARGV[1]) then
 		redis.call('del',KEYS[1])
 		redis.call('select',0)
 		redis.call('Expire',KEYS[1],1800) --30分钟后超时
@@ -144,8 +144,11 @@ func RedisGet(cli *redis.Client, key string) (value string, err error) {
 	}
 
 	var re interface{}
-
-	if re, err = cli.EvalSha(scriptGetSha, []string{key}).Result(); err != nil {
+	re, err = cli.EvalSha(scriptGetSha, []string{key}).Result()
+	if err != nil && err.Error() == "redis: nil" {
+		err = nil
+	}
+	if err != nil {
 		return value, err
 	}
 
@@ -169,7 +172,14 @@ func RedisSet(cli *redis.Client, key string, value string) (err error) {
 	}
 
 	var re interface{}
-	if re, err = cli.EvalSha(scriptSetSha, []string{key}, value).Result(); err == nil {
+
+	re, err = cli.EvalSha(scriptSetSha, []string{key}, value).Result()
+
+	if err != nil && err.Error() == "redis: nil" {
+		err = nil
+	}
+
+	if err == nil {
 		result := re.(string)
 		if result != "err_ok" {
 			err = errors.New(result)
@@ -189,6 +199,10 @@ func RedisLoadGet(cli *redis.Client, key string, version int, v string) (value s
 
 	var r interface{}
 	r, err = cli.EvalSha(scriptLoadGetSha, []string{key}, version, v).Result()
+	if err != nil && err.Error() == "redis: nil" {
+		err = nil
+	}
+
 	if err == nil {
 		result := r.([]interface{})
 		if len(result) == 1 {
@@ -210,6 +224,25 @@ func RedisLoadSet(cli *redis.Client, key string, version int, value string) (err
 	}
 
 	_, err = cli.EvalSha(scriptLoadSetSha, []string{key}, version, value).Result()
+	if err != nil && err.Error() == "redis: nil" {
+		err = nil
+	}
 
+	return err
+}
+
+func RedisClearDirty(cli *redis.Client, key string, version int) (err error) {
+	shaOnce.Do(func() {
+		err = InitScriptSha(cli)
+	})
+
+	if err != nil {
+		return err
+	}
+
+	_, err = cli.EvalSha(scriptClearDirtySha, []string{key}, version).Result()
+	if err != nil && err.Error() == "redis: nil" {
+		err = nil
+	}
 	return err
 }

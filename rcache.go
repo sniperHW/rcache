@@ -4,6 +4,7 @@ import (
 	"context"
 	dbsql "database/sql"
 	"fmt"
+	"time"
 
 	"github.com/go-redis/redis"
 	"github.com/jmoiron/sqlx"
@@ -11,12 +12,14 @@ import (
 
 type dataproxy struct {
 	rediscli *redis.Client
+	scancli  *redis.Client
 	dbc      *sqlx.DB
 }
 
 func (p *dataproxy) Set(ctx context.Context, key string, value string) (err error) {
 	//尝试直接更新redis
 	if err = RedisSet(p.rediscli, key, value); err != nil {
+		fmt.Println(1, err)
 		if err.Error() == "err_not_in_redis" {
 			//写入数据库
 			var version int
@@ -47,5 +50,48 @@ func (p *dataproxy) Get(ctx context.Context, key string) (value string, err erro
 	return value, err
 }
 
-/*func (p *dataproxy) SyncDirtyToDB() {
-}*/
+func (p *dataproxy) SyncDirtyToDB() error {
+	cursor := uint64(0)
+	var keys []string
+	var err error
+
+	for {
+		keys, cursor, err = p.scancli.Scan(cursor, "", 10).Result()
+		if err != nil {
+			return err
+		}
+
+		for _, key := range keys {
+			r, err := p.rediscli.HMGet(key, "version", "value").Result()
+			if err != nil {
+				return err
+			}
+			version := r[0].(int)
+			value := r[1].(string)
+			ctx, cancel := context.WithTimeout(context.TODO(), time.Second)
+			defer cancel()
+			err = writebackPgsql(ctx, p.dbc, key, value, version)
+
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+				if err != nil {
+					return err
+				}
+			}
+			//清除dirty标记
+			err = RedisClearDirty(p.rediscli, key, version)
+			if err != nil {
+				return err
+			}
+		}
+
+		if cursor == 0 {
+			break
+		}
+	}
+
+	return nil
+
+}

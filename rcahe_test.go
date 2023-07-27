@@ -127,7 +127,7 @@ func TestCacheSet(t *testing.T) {
 		dbc:      dbc,
 	}
 
-	fmt.Println(cli.Del("hello").Result())
+	cli.Del("hello").Result()
 	dbc.Exec("delete from kv where key = 'hello';")
 
 	err = proxy.Set(context.TODO(), "hello", "world")
@@ -138,4 +138,35 @@ func TestCacheSet(t *testing.T) {
 
 	fmt.Println(cli.TTL("hello"))
 
+}
+
+func TestScan(t *testing.T) {
+	dbc, _ := sqlx.Open("postgres", "host=localhost port=15432 dbname=test user=postgres password=802802 sslmode=disable")
+
+	cli := redis.NewClient(&redis.Options{
+		Addr: "localhost:6379",
+	})
+	scancli := redis.NewClient(&redis.Options{
+		Addr: "localhost:6379",
+		DB:   1,
+	})
+
+	proxy := dataproxy{
+		rediscli: cli,
+		scancli:  scancli,
+		dbc:      dbc,
+	}
+
+	for i := 0; i < 100; i++ {
+		str := fmt.Sprintf("key:%d", i)
+		err := proxy.Set(context.TODO(), str, str)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}
+
+	err := proxy.SyncDirtyToDB()
+	if err != nil {
+		fmt.Println(err)
+	}
 }
