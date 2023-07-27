@@ -139,26 +139,22 @@ func RedisGet(cli *redis.Client, key string) (value string, err error) {
 	shaOnce.Do(func() {
 		err = InitScriptSha(cli)
 	})
-	if err != nil {
+
+	if err == nil {
 		return value, err
 	}
 
 	var re interface{}
-	re, err = cli.EvalSha(scriptGetSha, []string{key}).Result()
-	if err != nil && err.Error() == "redis: nil" {
+	if re, err = cli.EvalSha(scriptGetSha, []string{key}).Result(); err == nil || err.Error() == "redis: nil" {
 		err = nil
-	}
-	if err != nil {
-		return value, err
+		result := re.([]interface{})
+		if len(result) == 1 {
+			err = errors.New(result[0].(string))
+		} else {
+			value = result[1].(string)
+		}
 	}
 
-	result := re.([]interface{})
-
-	if len(result) == 1 {
-		err = errors.New(result[0].(string))
-	} else {
-		value = result[1].(string)
-	}
 	return value, err
 }
 
@@ -173,18 +169,13 @@ func RedisSet(cli *redis.Client, key string, value string) (err error) {
 
 	var re interface{}
 
-	re, err = cli.EvalSha(scriptSetSha, []string{key}, value).Result()
-
-	if err != nil && err.Error() == "redis: nil" {
-		err = nil
-	}
-
-	if err == nil {
+	if re, err = cli.EvalSha(scriptSetSha, []string{key}, value).Result(); err == nil || err.Error() == "redis: nil" {
 		result := re.(string)
 		if result != "err_ok" {
 			err = errors.New(result)
 		}
 	}
+
 	return err
 }
 
@@ -198,12 +189,7 @@ func RedisLoadGet(cli *redis.Client, key string, version int, v string) (value s
 	}
 
 	var r interface{}
-	r, err = cli.EvalSha(scriptLoadGetSha, []string{key}, version, v).Result()
-	if err != nil && err.Error() == "redis: nil" {
-		err = nil
-	}
-
-	if err == nil {
+	if r, err = cli.EvalSha(scriptLoadGetSha, []string{key}, version, v).Result(); err == nil || err.Error() == "redis: nil" {
 		result := r.([]interface{})
 		if len(result) == 1 {
 			err = errors.New(result[0].(string))
@@ -223,8 +209,7 @@ func RedisLoadSet(cli *redis.Client, key string, version int, value string) (err
 		return err
 	}
 
-	_, err = cli.EvalSha(scriptLoadSetSha, []string{key}, version, value).Result()
-	if err != nil && err.Error() == "redis: nil" {
+	if _, err = cli.EvalSha(scriptLoadSetSha, []string{key}, version, value).Result(); err == nil || err.Error() == "redis: nil" {
 		err = nil
 	}
 
@@ -240,8 +225,7 @@ func RedisClearDirty(cli *redis.Client, key string, version int) (err error) {
 		return err
 	}
 
-	_, err = cli.EvalSha(scriptClearDirtySha, []string{key}, version).Result()
-	if err != nil && err.Error() == "redis: nil" {
+	if _, err = cli.EvalSha(scriptClearDirtySha, []string{key}, version).Result(); err == nil || err.Error() == "redis: nil" {
 		err = nil
 	}
 	return err

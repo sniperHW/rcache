@@ -26,7 +26,6 @@ func updateRowPgsql(ctx context.Context, dbc *sqlx.DB, key string, value string)
 	_, err = tx.ExecContext(ctx, str, key, value, 1)
 
 	if err != nil {
-		fmt.Println("1", err)
 		if rollbackErr := tx.Rollback(); rollbackErr != nil {
 			return version, err
 		}
