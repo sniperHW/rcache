@@ -8,6 +8,8 @@ import (
 	"github.com/go-redis/redis"
 )
 
+var cacheTimeout = 1800
+
 const scriptSet string = `
 	redis.call('select',0)
 	local version = redis.call('hget',KEYS[1],'version')
@@ -41,7 +43,7 @@ const scriptGet string = `
 		version = tonumber(version) + 1
 		local ttl = redis.call('ttl',KEYS[1])
 		if tonumber(ttl) > 0 then
-			redis.call('Expire',KEYS[1],1800) --30分钟后超时
+			redis.call('Expire',KEYS[1],%d) --30分钟后超时
 		end
 		return {'err_ok',value}
 	end
@@ -55,7 +57,7 @@ const scriptClearDirty string = `
 	if tonumber(version) == tonumber(ARGV[1]) then
 		redis.call('del',KEYS[1])
 		redis.call('select',0)
-		redis.call('Expire',KEYS[1],1800) --30分钟后超时
+		redis.call('Expire',KEYS[1],%d) --30分钟后超时
 	else
 		redis.call('select',0)
 	end
@@ -71,7 +73,7 @@ const scriptLoadGet string = `
 	if version then
 		local ttl = redis.call('ttl',KEYS[1])
 		if tonumber(ttl) > 0 then
-			redis.call('Expire',KEYS[1],1800) --30分钟后超时
+			redis.call('Expire',KEYS[1],%d) --30分钟后超时
 		end
 		if tonumber(version) > 0 then
 			return {'err_ok',value}
@@ -85,7 +87,7 @@ const scriptLoadGet string = `
 			return {'err_ok',ARGV[2]}	
 		else
 			redis.call('hmset',KEYS[1],'version',ARGV[1])
-			redis.call('Expire',KEYS[1],1800) --30分钟后超时
+			redis.call('Expire',KEYS[1],%d) --30分钟后超时
 			return {'err_not_exist'}				
 		end
 	end
@@ -98,7 +100,7 @@ const scriptLoadSet string = `
 	local version = redis.call('hget',KEYS[1],'version')
 	if not version or tonumber(version) < tonumber(ARGV[1]) then
 		redis.call('hmset',KEYS[1],'version',ARGV[1],'value',ARGV[2])
-		redis.call('Expire',KEYS[1],1800) --30分钟后超时
+		redis.call('Expire',KEYS[1],%d) --30分钟后超时
 	end
 `
 
@@ -110,22 +112,22 @@ func InitScriptSha(cli *redis.Client) (err error) {
 		return err
 	}
 
-	if scriptGetSha, err = cli.ScriptLoad(scriptGet).Result(); err != nil {
+	if scriptGetSha, err = cli.ScriptLoad(fmt.Sprintf(scriptGet, cacheTimeout)).Result(); err != nil {
 		err = fmt.Errorf("error on scriptGet:%s", err.Error())
 		return err
 	}
 
-	if scriptClearDirtySha, err = cli.ScriptLoad(scriptClearDirty).Result(); err != nil {
+	if scriptClearDirtySha, err = cli.ScriptLoad(fmt.Sprintf(scriptClearDirty, cacheTimeout)).Result(); err != nil {
 		err = fmt.Errorf("error on scriptClearDirty:%s", err.Error())
 		return err
 	}
 
-	if scriptLoadGetSha, err = cli.ScriptLoad(scriptLoadGet).Result(); err != nil {
+	if scriptLoadGetSha, err = cli.ScriptLoad(fmt.Sprintf(scriptLoadGet, cacheTimeout, cacheTimeout)).Result(); err != nil {
 		err = fmt.Errorf("error on scriptLoadGet:%s", err.Error())
 		return err
 	}
 
-	if scriptLoadSetSha, err = cli.ScriptLoad(scriptLoadSet).Result(); err != nil {
+	if scriptLoadSetSha, err = cli.ScriptLoad(fmt.Sprintf(scriptLoadSet, cacheTimeout)).Result(); err != nil {
 		err = fmt.Errorf("error on scriptLoadSet:%s", err.Error())
 		return err
 	}
