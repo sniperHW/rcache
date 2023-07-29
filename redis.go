@@ -142,7 +142,7 @@ func RedisGet(cli *redis.Client, key string) (value string, err error) {
 		err = InitScriptSha(cli)
 	})
 
-	if err == nil {
+	if err != nil {
 		return value, err
 	}
 
