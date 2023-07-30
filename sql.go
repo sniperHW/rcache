@@ -48,7 +48,7 @@ func updateRowPgsql(ctx context.Context, dbc *sqlx.DB, key string, value string)
 
 func writebackPgsql(ctx context.Context, dbc *sqlx.DB, key string, value string, version int) (err error) {
 	var str = `insert into kv("key","value","version") values($1,$2,$3) ON conflict(key) DO UPDATE SET 
-	value = $2,version = $3 where kv.key = $1 and version < $3;`
+	value = $2,version = $3 where kv.key = $1 and kv.version < $3;`
 	_, err = dbc.ExecContext(ctx, str, key, value, version)
 	return err
 }

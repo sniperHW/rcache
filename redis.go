@@ -108,27 +108,27 @@ var scriptLoadSetSha string
 
 func InitScriptSha(cli *redis.Client) (err error) {
 	if scriptSetSha, err = cli.ScriptLoad(scriptSet).Result(); err != nil {
-		err = fmt.Errorf("error on scriotSet:%s", err.Error())
+		err = fmt.Errorf("error on init scriptSet:%s", err.Error())
 		return err
 	}
 
 	if scriptGetSha, err = cli.ScriptLoad(fmt.Sprintf(scriptGet, cacheTimeout)).Result(); err != nil {
-		err = fmt.Errorf("error on scriptGet:%s", err.Error())
+		err = fmt.Errorf("error on init scriptGet:%s", err.Error())
 		return err
 	}
 
 	if scriptClearDirtySha, err = cli.ScriptLoad(fmt.Sprintf(scriptClearDirty, cacheTimeout)).Result(); err != nil {
-		err = fmt.Errorf("error on scriptClearDirty:%s", err.Error())
+		err = fmt.Errorf("error on init scriptClearDirty:%s", err.Error())
 		return err
 	}
 
 	if scriptLoadGetSha, err = cli.ScriptLoad(fmt.Sprintf(scriptLoadGet, cacheTimeout, cacheTimeout)).Result(); err != nil {
-		err = fmt.Errorf("error on scriptLoadGet:%s", err.Error())
+		err = fmt.Errorf("error on init scriptLoadGet:%s", err.Error())
 		return err
 	}
 
 	if scriptLoadSetSha, err = cli.ScriptLoad(fmt.Sprintf(scriptLoadSet, cacheTimeout)).Result(); err != nil {
-		err = fmt.Errorf("error on scriptLoadSet:%s", err.Error())
+		err = fmt.Errorf("error on init scriptLoadSet:%s", err.Error())
 		return err
 	}
 

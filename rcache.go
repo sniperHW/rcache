@@ -3,7 +3,7 @@ package rcache
 import (
 	"context"
 	dbsql "database/sql"
-	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/go-redis/redis"
@@ -19,7 +19,6 @@ type dataproxy struct {
 func (p *dataproxy) Set(ctx context.Context, key string, value string) (err error) {
 	//尝试直接更新redis
 	if err = RedisSet(p.rediscli, key, value); err != nil {
-		fmt.Println(1, err)
 		if err.Error() == "err_not_in_redis" {
 			//写入数据库
 			var version int
@@ -39,12 +38,7 @@ func (p *dataproxy) Get(ctx context.Context, key string) (value string, err erro
 			version, value, err = queryRow(ctx, p.dbc, key)
 			if err == nil || err == dbsql.ErrNoRows {
 				value, err = RedisLoadGet(p.rediscli, key, version, value)
-				if err != nil {
-					err = fmt.Errorf("error on scriptLoadGet:%s", err.Error())
-				}
 			}
-		} else {
-			err = fmt.Errorf("error on scriptGet:%s", err.Error())
 		}
 	}
 	return value, err
@@ -66,10 +60,13 @@ func (p *dataproxy) SyncDirtyToDB() error {
 			if err != nil {
 				return err
 			}
-			version := r[0].(int)
+			version, _ := strconv.Atoi(r[0].(string))
 			value := r[1].(string)
 			ctx, cancel := context.WithTimeout(context.TODO(), time.Second)
 			defer cancel()
+
+			//fmt.Println("write to db", key, value, version)
+
 			err = writebackPgsql(ctx, p.dbc, key, value, version)
 
 			select {
@@ -81,6 +78,7 @@ func (p *dataproxy) SyncDirtyToDB() error {
 				}
 			}
 			//清除dirty标记
+			//fmt.Println("clear dirty", key, version)
 			err = RedisClearDirty(p.rediscli, key, version)
 			if err != nil {
 				return err

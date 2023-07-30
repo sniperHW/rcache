@@ -6,6 +6,7 @@ package rcache
 import (
 	"context"
 	"fmt"
+	"time"
 
 	//"sync"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestRedisGet(t *testing.T) {
@@ -169,4 +171,73 @@ func TestScan(t *testing.T) {
 	if err != nil {
 		fmt.Println(err)
 	}
+}
+
+func TestRCache(t *testing.T) {
+	dbc, _ := sqlx.Open("postgres", "host=localhost port=15432 dbname=test user=postgres password=802802 sslmode=disable")
+
+	cli := redis.NewClient(&redis.Options{
+		Addr: "localhost:6379",
+	})
+	scancli := redis.NewClient(&redis.Options{
+		Addr: "localhost:6379",
+		DB:   1,
+	})
+
+	proxy := dataproxy{
+		rediscli: cli,
+		scancli:  scancli,
+		dbc:      dbc,
+	}
+
+	cacheTimeout = 5
+
+	cli.Del("testkey").Result()
+	dbc.Exec("delete from kv where key = 'testkey';")
+
+	value, err := proxy.Get(context.TODO(), "testkey")
+
+	fmt.Println(value)
+
+	assert.Equal(t, "err_not_exist", err.Error())
+
+	//直接从redis获取
+	version, _ := cli.HGet("testkey", "version").Result()
+	assert.Equal(t, "0", version)
+
+	//等待timeout
+	fmt.Println("wait for timeout...")
+	time.Sleep(time.Second * 5)
+	_, err = cli.HGet("testkey", "version").Result()
+	assert.Equal(t, err.Error(), "redis: nil")
+
+	err = proxy.Set(context.TODO(), "testkey", "testvalue")
+
+	assert.Nil(t, err)
+	version, _ = cli.HGet("testkey", "version").Result()
+	assert.Equal(t, "1", version)
+
+	fmt.Println(cli.TTL("testkey"))
+
+	err = proxy.Set(context.TODO(), "testkey", "testvalue2")
+
+	assert.Nil(t, err)
+	version, _ = cli.HGet("testkey", "version").Result()
+	assert.Equal(t, "2", version)
+
+	fmt.Println(cli.TTL("testkey"))
+
+	value, _ = proxy.Get(context.TODO(), "testkey")
+	assert.Equal(t, value, "testvalue2")
+	fmt.Println(cli.TTL("testkey"))
+
+	proxy.SyncDirtyToDB()
+
+	fmt.Println(cli.TTL("testkey"))
+
+	fmt.Println("wait for timeout...")
+	time.Sleep(time.Second * 5)
+	_, err = cli.HGet("testkey", "version").Result()
+	assert.Equal(t, err.Error(), "redis: nil")
+
 }
