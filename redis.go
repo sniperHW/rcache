@@ -40,7 +40,6 @@ const scriptGet string = `
 	elseif tonumber(version) == 0 then
 		return {'err_not_exist'}
 	else
-		version = tonumber(version) + 1
 		local ttl = redis.call('ttl',KEYS[1])
 		if tonumber(ttl) > 0 then
 			redis.call('Expire',KEYS[1],%d) --30分钟后超时
