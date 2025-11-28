@@ -12,8 +12,10 @@ import (
 	"testing"
 	//"time"
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 	redis "github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestRedisGet(t *testing.T) {
@@ -125,9 +127,16 @@ func TestRedisSet(t *testing.T) {
 
 }
 
-/*
 func TestPGUpdate(t *testing.T) {
-	dbc, err := sqlx.Open("postgres", "host=localhost port=15432 dbname=test user=postgres password=802802 sslmode=disable")
+	dbc, err := sqlx.Open("postgres", "host=localhost port=5432 dbname=test user=postgres password=802802 sslmode=disable")
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dbc.ExecContext(context.TODO(), "delete from kv;")
+
+	defer dbc.Close()
 
 	version, err := insertUpdateRowPgsql(context.TODO(), dbc, "hello", "world")
 
@@ -135,55 +144,63 @@ func TestPGUpdate(t *testing.T) {
 }
 
 func TestCacheGet(t *testing.T) {
-	dbc, err := sqlx.Open("postgres", "host=localhost port=15432 dbname=test user=postgres password=802802 sslmode=disable")
+	dbc, err := sqlx.Open("postgres", "host=localhost port=5432 dbname=test user=postgres password=802802 sslmode=disable")
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	cli := redis.NewClient(&redis.Options{
 		Addr: "localhost:6379",
 	})
 
-	proxy := dataproxy{
-		rediscli: cli,
-		dbc:      dbc,
-	}
+	dbc.ExecContext(context.TODO(), "delete from kv;")
+	cli.FlushAll(context.TODO()).Result()
 
-	fmt.Println(cli.Del("hello").Result())
-	dbc.Exec("delete from kv where key = 'hello';")
+	defer dbc.Close()
+
+	proxy := NewDataProxy(cli, nil, dbc)
 
 	value, _, err := proxy.Get(context.TODO(), "hello")
 
 	fmt.Println(value, err)
 
-	fmt.Println(cli.HGet("hello", "version").Int())
+	fmt.Println(cli.HGet(context.TODO(), "hello", "version").Int())
 
-	fmt.Println(cli.TTL("hello"))
+	fmt.Println(cli.TTL(context.TODO(), "hello").Result())
 
 }
 
 func TestCacheSet(t *testing.T) {
-	dbc, err := sqlx.Open("postgres", "host=localhost port=15432 dbname=test user=postgres password=802802 sslmode=disable")
+	dbc, err := sqlx.Open("postgres", "host=localhost port=5432 dbname=test user=postgres password=802802 sslmode=disable")
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	cli := redis.NewClient(&redis.Options{
 		Addr: "localhost:6379",
 	})
 
-	proxy := dataproxy{
-		rediscli: cli,
-		dbc:      dbc,
-	}
+	dbc.ExecContext(context.TODO(), "delete from kv;")
+	cli.FlushAll(context.TODO()).Result()
 
-	cli.Del("hello").Result()
-	dbc.Exec("delete from kv where key = 'hello';")
+	defer dbc.Close()
+
+	proxy := NewDataProxy(cli, nil, dbc)
 
 	_, err = proxy.Set(context.TODO(), "hello", "world")
 
 	fmt.Println("set", err)
 
-	fmt.Println(cli.HGet("hello", "version").Int())
+	fmt.Println(cli.HGet(context.TODO(), "hello", "version").Int())
 
-	fmt.Println(cli.TTL("hello"))
+	fmt.Println(cli.TTL(context.TODO(), "hello").Result())
 
 }
 
 func TestScan(t *testing.T) {
-	dbc, _ := sqlx.Open("postgres", "host=localhost port=15432 dbname=test user=postgres password=802802 sslmode=disable")
+	dbc, _ := sqlx.Open("postgres", "host=localhost port=5432 dbname=test user=postgres password=802802 sslmode=disable")
 
 	cli := redis.NewClient(&redis.Options{
 		Addr: "localhost:6379",
@@ -193,11 +210,12 @@ func TestScan(t *testing.T) {
 		DB:   1,
 	})
 
-	proxy := dataproxy{
-		rediscli: cli,
-		scancli:  scancli,
-		dbc:      dbc,
-	}
+	dbc.ExecContext(context.TODO(), "delete from kv;")
+	cli.FlushAll(context.TODO()).Result()
+
+	defer dbc.Close()
+
+	proxy := NewDataProxy(cli, scancli, dbc)
 
 	for i := 0; i < 100; i++ {
 		str := fmt.Sprintf("key:%d", i)
@@ -207,14 +225,14 @@ func TestScan(t *testing.T) {
 		}
 	}
 
-	err := proxy.SyncDirtyToDB()
+	err := proxy.SyncDirtyToDB(context.TODO())
 	if err != nil {
 		fmt.Println(err)
 	}
 }
 
 func TestRCache(t *testing.T) {
-	dbc, _ := sqlx.Open("postgres", "host=localhost port=15432 dbname=test user=postgres password=802802 sslmode=disable")
+	dbc, _ := sqlx.Open("postgres", "host=localhost port=5432 dbname=test user=postgres password=802802 sslmode=disable")
 
 	cli := redis.NewClient(&redis.Options{
 		Addr: "localhost:6379",
@@ -224,16 +242,14 @@ func TestRCache(t *testing.T) {
 		DB:   1,
 	})
 
-	proxy := dataproxy{
-		rediscli: cli,
-		scancli:  scancli,
-		dbc:      dbc,
-	}
+	dbc.ExecContext(context.TODO(), "delete from kv;")
+	cli.FlushAll(context.TODO()).Result()
+
+	defer dbc.Close()
+
+	proxy := NewDataProxy(cli, scancli, dbc)
 
 	cacheTimeout = 5
-
-	cli.Del("testkey").Result()
-	dbc.Exec("delete from kv where key = 'testkey';")
 
 	value, _, err := proxy.Get(context.TODO(), "testkey")
 
@@ -242,43 +258,41 @@ func TestRCache(t *testing.T) {
 	assert.Equal(t, "err_not_exist", err.Error())
 
 	//直接从redis获取
-	version, _ := cli.HGet("testkey", "version").Result()
+	version, _ := cli.HGet(context.TODO(), "testkey", "version").Result()
 	assert.Equal(t, "0", version)
 
 	//等待timeout
 	fmt.Println("wait for timeout...")
 	time.Sleep(time.Second * 5)
-	_, err = cli.HGet("testkey", "version").Result()
+	_, err = cli.HGet(context.TODO(), "testkey", "version").Result()
 	assert.Equal(t, err.Error(), "redis: nil")
 
 	_, err = proxy.Set(context.TODO(), "testkey", "testvalue")
 
 	assert.Nil(t, err)
-	version, _ = cli.HGet("testkey", "version").Result()
+	version, _ = cli.HGet(context.TODO(), "testkey", "version").Result()
 	assert.Equal(t, "1", version)
 
-	fmt.Println(cli.TTL("testkey"))
+	fmt.Println(cli.TTL(context.TODO(), "testkey").Result())
 
 	_, err = proxy.Set(context.TODO(), "testkey", "testvalue2")
 
 	assert.Nil(t, err)
-	version, _ = cli.HGet("testkey", "version").Result()
+	version, _ = cli.HGet(context.TODO(), "testkey", "version").Result()
 	assert.Equal(t, "2", version)
 
-	fmt.Println(cli.TTL("testkey"))
+	fmt.Println(cli.TTL(context.TODO(), "testkey").Result())
 
 	value, _, _ = proxy.Get(context.TODO(), "testkey")
 	assert.Equal(t, value, "testvalue2")
-	fmt.Println(cli.TTL("testkey"))
+	fmt.Println(cli.TTL(context.TODO(), "testkey").Result())
 
-	proxy.SyncDirtyToDB()
+	proxy.SyncDirtyToDB(context.TODO())
 
-	fmt.Println(cli.TTL("testkey"))
+	fmt.Println(cli.TTL(context.TODO(), "testkey").Result())
 
 	fmt.Println("wait for timeout...")
 	time.Sleep(time.Second * 5)
-	_, err = cli.HGet("testkey", "version").Result()
+	_, err = cli.HGet(context.TODO(), "testkey", "version").Result()
 	assert.Equal(t, err.Error(), "redis: nil")
-
 }
-*/
