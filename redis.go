@@ -11,12 +11,17 @@ import (
 var cacheTimeout = 1800
 
 const scriptSet string = `
+	local input_version = tonumber(ARGV[2])
 	redis.call('select',0)
 	local version = redis.call('hget',KEYS[1],'version')
 	if not version then
-		return 'err_not_in_redis'
+		return {'err_not_in_redis'}
 	else
-		version = tonumber(version) + 1
+        version = tonumber(version)
+        if input_version > 0 and version ~= input_version then
+			return {'err_version_not_match'}
+		end	   
+		version = version + 1
 		redis.call('hmset',KEYS[1],'version',version,'value',ARGV[1])
 		--清除ttl
 		redis.call('PERSIST',KEYS[1])
@@ -24,7 +29,7 @@ const scriptSet string = `
 		redis.call('select',1)
 		redis.call('hmset',KEYS[1],'version',version)
 		redis.call('select',0)
-		return 'err_ok'
+		return {'err_ok',version}
 	end
 `
 
@@ -45,7 +50,7 @@ const scriptGet string = `
 		if tonumber(ttl) > 0 then
 			redis.call('Expire',KEYS[1],cacheTimeout)
 		end
-		return {'err_ok',value}
+		return {'err_ok',value,tonumber(version)}
 	end
 `
 
@@ -78,7 +83,7 @@ const scriptLoadGet string = `
 			redis.call('Expire',KEYS[1],cacheTimeout)
 		end
 		if tonumber(version) > 0 then
-			return {'err_ok',value}
+			return {'err_ok',value,tonumber(version)}
 		else 
 			return {'err_not_exist'}
 		end
@@ -86,7 +91,7 @@ const scriptLoadGet string = `
 		if tonumber(ARGV[1]) > 0 then
 			redis.call('hmset',KEYS[1],'version',ARGV[1],'value',ARGV[2])
 			redis.call('Expire',KEYS[1],cacheTimeout)
-			return {'err_ok',ARGV[2]}	
+			return {'err_ok',ARGV[2],tonumber(ARGV[1])}	
 		else
 			redis.call('hmset',KEYS[1],'version',ARGV[1])
 			redis.call('Expire',KEYS[1],cacheTimeout)
@@ -140,13 +145,13 @@ func InitScriptSha(cli *redis.Client) (err error) {
 
 var shaOnce sync.Once
 
-func RedisGet(cli *redis.Client, key string) (value string, err error) {
+func RedisGet(cli *redis.Client, key string) (value string, version int, err error) {
 	shaOnce.Do(func() {
 		err = InitScriptSha(cli)
 	})
 
 	if err != nil {
-		return value, err
+		return value, version, err
 	}
 
 	var re interface{}
@@ -157,40 +162,48 @@ func RedisGet(cli *redis.Client, key string) (value string, err error) {
 			err = errors.New(result[0].(string))
 		} else {
 			value = result[1].(string)
+			version = int(result[2].(int64))
 		}
 	}
-
-	return value, err
+	return value, version, err
 }
 
-func RedisSet(cli *redis.Client, key string, value string) (err error) {
+func RedisSet(cli *redis.Client, key string, value string) (ver int, err error) {
+	return redisSet(cli, key, value, 0)
+}
+
+func RedisSetWithVersion(cli *redis.Client, key string, value string, version int) (ver int, err error) {
+	return redisSet(cli, key, value, version)
+}
+
+func redisSet(cli *redis.Client, key string, value string, version int) (ver int, err error) {
 	shaOnce.Do(func() {
 		err = InitScriptSha(cli)
 	})
 
 	if err != nil {
-		return err
+		return ver, err
 	}
 
 	var re interface{}
-
-	if re, err = cli.EvalSha(scriptSetSha, []string{key}, value).Result(); err == nil || err.Error() == "redis: nil" {
-		result := re.(string)
-		if result != "err_ok" {
-			err = errors.New(result)
+	if re, err = cli.EvalSha(scriptSetSha, []string{key}, value, version).Result(); err == nil || err.Error() == "redis: nil" {
+		result := re.([]interface{})
+		if len(result) == 1 {
+			err = errors.New(result[0].(string))
+		} else {
+			ver = int(result[1].(int64))
 		}
 	}
-
-	return err
+	return ver, err
 }
 
-func RedisLoadGet(cli *redis.Client, key string, version int, v string) (value string, err error) {
+func RedisLoadGet(cli *redis.Client, key string, version int, v string) (value string, ver int, err error) {
 	shaOnce.Do(func() {
 		err = InitScriptSha(cli)
 	})
 
 	if err != nil {
-		return value, err
+		return value, version, err
 	}
 
 	var r interface{}
@@ -200,9 +213,10 @@ func RedisLoadGet(cli *redis.Client, key string, version int, v string) (value s
 			err = errors.New(result[0].(string))
 		} else {
 			value = result[1].(string)
+			ver = int(result[2].(int64))
 		}
 	}
-	return value, err
+	return value, ver, err
 }
 
 func RedisLoadSet(cli *redis.Client, key string, version int, value string) (err error) {

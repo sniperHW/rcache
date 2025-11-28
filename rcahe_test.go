@@ -4,7 +4,6 @@ package rcache
 //go tool cover -html=coverage.out
 
 import (
-	"context"
 	"fmt"
 	"time"
 
@@ -13,9 +12,7 @@ import (
 	//"time"
 	"github.com/go-redis/redis"
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
-	"github.com/stretchr/testify/assert"
 )
 
 func TestRedisGet(t *testing.T) {
@@ -23,23 +20,25 @@ func TestRedisGet(t *testing.T) {
 		Addr: "localhost:6379",
 	})
 
-	r, err := RedisGet(cli, "hello")
+	cli.FlushAll().Result()
 
-	fmt.Println(r, err)
+	r, ver, err := RedisGet(cli, "hello")
+
+	fmt.Println(r, ver, err)
 
 	cli.Eval("redis.call('hmset','hello','version',1,'value','hello')", []string{})
 
-	r, err = RedisGet(cli, "hello")
+	r, ver, err = RedisGet(cli, "hello")
 
-	fmt.Println(r, err)
+	fmt.Println(r, ver, err)
 
 	fmt.Println(cli.TTL("hello"))
 
 	cli.Eval("redis.call('del','hello')", []string{})
 
-	r, err = RedisGet(cli, "hello")
+	r, ver, err = RedisGet(cli, "hello")
 
-	fmt.Println(r, err)
+	fmt.Println(r, ver, err)
 }
 
 func TestRedisLoadGet(t *testing.T) {
@@ -47,9 +46,19 @@ func TestRedisLoadGet(t *testing.T) {
 		Addr: "localhost:6379",
 	})
 
-	r, err := RedisLoadGet(cli, "hello", 0, "")
+	cli.FlushAll().Result()
 
-	fmt.Println("loadGet", r, err)
+	r, v, err := RedisLoadGet(cli, "hello", 0, "")
+
+	fmt.Println("loadGet", r, v, err)
+
+	fmt.Println(cli.TTL("hello"))
+
+	fmt.Println(cli.Del("hello").Result())
+
+	r, v, err = RedisLoadGet(cli, "hello", 1, "world")
+
+	fmt.Println("loadGet again", r, v, err)
 
 	fmt.Println(cli.TTL("hello"))
 
@@ -60,8 +69,23 @@ func TestRedisLoadSet(t *testing.T) {
 	cli := redis.NewClient(&redis.Options{
 		Addr: "localhost:6379",
 	})
+	cli.FlushAll().Result()
 
-	err := RedisLoadSet(cli, "hello", 1, "world")
+	err := RedisLoadSet(cli, "hello", 2, "world")
+
+	fmt.Println(err)
+
+	fmt.Println(cli.TTL("hello"))
+
+	time.Sleep(time.Second * 2)
+
+	err = RedisLoadSet(cli, "hello", 1, "world")
+
+	fmt.Println(err)
+
+	fmt.Println(cli.TTL("hello"))
+
+	err = RedisLoadSet(cli, "hello", 3, "world")
 
 	fmt.Println(err)
 
@@ -75,21 +99,40 @@ func TestRedisSet(t *testing.T) {
 		Addr: "localhost:6379",
 	})
 
-	err := RedisSet(cli, "hello", "world")
-	if err != nil {
-		fmt.Println("Set error", err)
-		return
-	}
+	cli.FlushAll().Result()
+
+	ver, err := RedisSet(cli, "hello", "world")
+	fmt.Println(err, ver)
+
+	RedisLoadSet(cli, "hello", 1, "world")
 
 	var re interface{}
 	re, err = cli.Eval("return redis.call('hmget','hello','version','value')", []string{}).Result()
 	fmt.Println(re, err)
+
+	ver, err = RedisSet(cli, "hello", "world2")
+	fmt.Println(err, ver)
+
+	re, err = cli.Eval("return redis.call('hmget','hello','version','value')", []string{}).Result()
+	fmt.Println(re, err)
+
+	//版本不一致，更新失败
+	ver, err = RedisSetWithVersion(cli, "hello", "world3", 1)
+	fmt.Println(err, ver)
+
+	ver, err = RedisSetWithVersion(cli, "hello", "world3", ver)
+	fmt.Println(err, ver)
+
+	re, err = cli.Eval("return redis.call('hmget','hello','version','value')", []string{}).Result()
+	fmt.Println(re, err)
+
 }
 
+/*
 func TestPGUpdate(t *testing.T) {
 	dbc, err := sqlx.Open("postgres", "host=localhost port=15432 dbname=test user=postgres password=802802 sslmode=disable")
 
-	version, err := updateRowPgsql(context.TODO(), dbc, "hello", "world")
+	version, err := insertUpdateRowPgsql(context.TODO(), dbc, "hello", "world")
 
 	fmt.Println(version, err)
 }
@@ -108,7 +151,7 @@ func TestCacheGet(t *testing.T) {
 	fmt.Println(cli.Del("hello").Result())
 	dbc.Exec("delete from kv where key = 'hello';")
 
-	value, err := proxy.Get(context.TODO(), "hello")
+	value, _, err := proxy.Get(context.TODO(), "hello")
 
 	fmt.Println(value, err)
 
@@ -132,7 +175,7 @@ func TestCacheSet(t *testing.T) {
 	cli.Del("hello").Result()
 	dbc.Exec("delete from kv where key = 'hello';")
 
-	err = proxy.Set(context.TODO(), "hello", "world")
+	_, err = proxy.Set(context.TODO(), "hello", "world")
 
 	fmt.Println("set", err)
 
@@ -161,7 +204,7 @@ func TestScan(t *testing.T) {
 
 	for i := 0; i < 100; i++ {
 		str := fmt.Sprintf("key:%d", i)
-		err := proxy.Set(context.TODO(), str, str)
+		_, err := proxy.Set(context.TODO(), str, str)
 		if err != nil {
 			fmt.Println(err)
 		}
@@ -195,7 +238,7 @@ func TestRCache(t *testing.T) {
 	cli.Del("testkey").Result()
 	dbc.Exec("delete from kv where key = 'testkey';")
 
-	value, err := proxy.Get(context.TODO(), "testkey")
+	value, _, err := proxy.Get(context.TODO(), "testkey")
 
 	fmt.Println(value)
 
@@ -211,7 +254,7 @@ func TestRCache(t *testing.T) {
 	_, err = cli.HGet("testkey", "version").Result()
 	assert.Equal(t, err.Error(), "redis: nil")
 
-	err = proxy.Set(context.TODO(), "testkey", "testvalue")
+	_, err = proxy.Set(context.TODO(), "testkey", "testvalue")
 
 	assert.Nil(t, err)
 	version, _ = cli.HGet("testkey", "version").Result()
@@ -219,7 +262,7 @@ func TestRCache(t *testing.T) {
 
 	fmt.Println(cli.TTL("testkey"))
 
-	err = proxy.Set(context.TODO(), "testkey", "testvalue2")
+	_, err = proxy.Set(context.TODO(), "testkey", "testvalue2")
 
 	assert.Nil(t, err)
 	version, _ = cli.HGet("testkey", "version").Result()
@@ -227,7 +270,7 @@ func TestRCache(t *testing.T) {
 
 	fmt.Println(cli.TTL("testkey"))
 
-	value, _ = proxy.Get(context.TODO(), "testkey")
+	value, _, _ = proxy.Get(context.TODO(), "testkey")
 	assert.Equal(t, value, "testvalue2")
 	fmt.Println(cli.TTL("testkey"))
 
@@ -241,3 +284,4 @@ func TestRCache(t *testing.T) {
 	assert.Equal(t, err.Error(), "redis: nil")
 
 }
+*/

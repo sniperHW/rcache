@@ -13,7 +13,17 @@ func queryRow(ctx context.Context, dbc *sqlx.DB, key string) (version int, value
 	return version, value, err
 }
 
-func updateRowPgsql(ctx context.Context, dbc *sqlx.DB, key string, value string) (version int, err error) {
+func updateRowPgsql(ctx context.Context, dbc *sqlx.DB, key string, value string, verison int) (ver int, err error) {
+	var str = `UPDATE SET value = $2,version = kv.version+1 where kv.key = $1 and kv.version = $3;`
+	_, err = dbc.ExecContext(ctx, str, key, value, verison)
+	if err != nil {
+		return ver, err
+	}
+	ver = verison + 1
+	return ver, err
+}
+
+func insertUpdateRowPgsql(ctx context.Context, dbc *sqlx.DB, key string, value string) (version int, err error) {
 	var tx *dbsql.Tx
 	tx, err = dbc.BeginTx(ctx, &dbsql.TxOptions{Isolation: dbsql.LevelReadCommitted})
 	if nil != err {

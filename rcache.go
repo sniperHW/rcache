@@ -16,32 +16,57 @@ type dataproxy struct {
 	dbc      *sqlx.DB
 }
 
-func (p *dataproxy) Set(ctx context.Context, key string, value string) (err error) {
+func (p *dataproxy) Set(ctx context.Context, key string, value string, version ...int) (ver int, err error) {
+	if len(version) > 0 && version[0] > 0 {
+		return p.setWithVersion(ctx, key, value, version[0])
+	}
+	return p.set(ctx, key, value)
+}
+
+func (p *dataproxy) set(ctx context.Context, key string, value string) (ver int, err error) {
 	//尝试直接更新redis
-	if err = RedisSet(p.rediscli, key, value); err != nil {
+	if ver, err = RedisSet(p.rediscli, key, value); err != nil {
 		if err.Error() == "err_not_in_redis" {
 			//写入数据库
-			var version int
-			if version, err = updateRowPgsql(ctx, p.dbc, key, value); err == nil {
-				err = RedisLoadSet(p.rediscli, key, version, value)
+			var dbversion int
+			if dbversion, err = insertUpdateRowPgsql(ctx, p.dbc, key, value); err == nil {
+				if err = RedisLoadSet(p.rediscli, key, dbversion, value); err == nil {
+					ver = dbversion
+				}
 			}
 		}
 	}
-	return err
+	return ver, err
 }
 
-func (p *dataproxy) Get(ctx context.Context, key string) (value string, err error) {
-	if value, err = RedisGet(p.rediscli, key); err != nil {
+// 只有版本号一致才能更新
+func (p *dataproxy) setWithVersion(ctx context.Context, key string, value string, version int) (ver int, err error) {
+	if ver, err = RedisSetWithVersion(p.rediscli, key, value, version); err != nil {
+		if err.Error() == "err_not_in_redis" {
+			//先尝试更新数据库
+			var dbversion int
+			if dbversion, err = updateRowPgsql(ctx, p.dbc, key, value, version); err == nil {
+				if err = RedisLoadSet(p.rediscli, key, dbversion, value); err == nil {
+					ver = dbversion
+				}
+			}
+		}
+	}
+	return ver, err
+}
+
+func (p *dataproxy) Get(ctx context.Context, key string) (value string, ver int, err error) {
+	if value, ver, err = RedisGet(p.rediscli, key); err != nil {
 		if err.Error() == "err_not_in_redis" {
 			//从数据库加载
 			var version int
 			version, value, err = queryRow(ctx, p.dbc, key)
 			if err == nil || err == dbsql.ErrNoRows {
-				value, err = RedisLoadGet(p.rediscli, key, version, value)
+				value, ver, err = RedisLoadGet(p.rediscli, key, version, value)
 			}
 		}
 	}
-	return value, err
+	return value, ver, err
 }
 
 func (p *dataproxy) SyncDirtyToDB() error {
@@ -65,8 +90,6 @@ func (p *dataproxy) SyncDirtyToDB() error {
 			ctx, cancel := context.WithTimeout(context.TODO(), time.Second)
 			defer cancel()
 
-			//fmt.Println("write to db", key, value, version)
-
 			err = writebackPgsql(ctx, p.dbc, key, value, version)
 
 			select {
@@ -78,7 +101,6 @@ func (p *dataproxy) SyncDirtyToDB() error {
 				}
 			}
 			//清除dirty标记
-			//fmt.Println("clear dirty", key, version)
 			err = RedisClearDirty(p.rediscli, key, version)
 			if err != nil {
 				return err
