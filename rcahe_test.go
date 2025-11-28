@@ -106,15 +106,12 @@ func TestRedisSet(t *testing.T) {
 
 	RedisLoadSet(cli, "hello", 1, "world")
 
-	var re interface{}
-	re, err = cli.Eval("return redis.call('hmget','hello','version','value')", []string{}).Result()
-	fmt.Println(re, err)
+	fmt.Println(RedisGet(cli, "hello"))
 
 	ver, err = RedisSet(cli, "hello", "world2")
 	fmt.Println(err, ver)
 
-	re, err = cli.Eval("return redis.call('hmget','hello','version','value')", []string{}).Result()
-	fmt.Println(re, err)
+	fmt.Println(RedisGet(cli, "hello"))
 
 	//版本不一致，更新失败
 	ver, err = RedisSetWithVersion(cli, "hello", "world3", 1)
@@ -123,8 +120,7 @@ func TestRedisSet(t *testing.T) {
 	ver, err = RedisSetWithVersion(cli, "hello", "world3", ver)
 	fmt.Println(err, ver)
 
-	re, err = cli.Eval("return redis.call('hmget','hello','version','value')", []string{}).Result()
-	fmt.Println(re, err)
+	fmt.Println(RedisGet(cli, "hello"))
 
 }
 
