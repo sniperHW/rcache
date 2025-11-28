@@ -156,7 +156,7 @@ func RedisGet(ctx context.Context, c *redis.Client, key string) (value string, v
 	}
 
 	var re interface{}
-	if re, err = c.EvalSha(ctx, scriptGetSha, []string{key}).Result(); err == nil || err.Error() == "redis: nil" {
+	if re, err = c.EvalSha(ctx, scriptGetSha, []string{key}).Result(); err == nil || err == redis.Nil {
 		err = nil
 		result := re.([]interface{})
 		if len(result) == 1 {
@@ -187,7 +187,7 @@ func redisSet(ctx context.Context, c *redis.Client, key string, value string, ve
 	}
 
 	var re interface{}
-	if re, err = c.EvalSha(ctx, scriptSetSha, []string{key}, value, version).Result(); err == nil || err.Error() == "redis: nil" {
+	if re, err = c.EvalSha(ctx, scriptSetSha, []string{key}, value, version).Result(); err == nil || err == redis.Nil {
 		result := re.([]interface{})
 		if len(result) == 1 {
 			err = errors.New(result[0].(string))
@@ -208,7 +208,7 @@ func RedisLoadGet(ctx context.Context, c *redis.Client, key string, version int,
 	}
 
 	var r interface{}
-	if r, err = c.EvalSha(ctx, scriptLoadGetSha, []string{key}, version, v).Result(); err == nil || err.Error() == "redis: nil" {
+	if r, err = c.EvalSha(ctx, scriptLoadGetSha, []string{key}, version, v).Result(); err == nil || err == redis.Nil {
 		result := r.([]interface{})
 		if len(result) == 1 {
 			err = errors.New(result[0].(string))
@@ -229,7 +229,7 @@ func RedisLoadSet(ctx context.Context, c *redis.Client, key string, version int,
 		return err
 	}
 
-	if _, err = c.EvalSha(ctx, scriptLoadSetSha, []string{key}, version, value).Result(); err == nil || err.Error() == "redis: nil" {
+	if _, err = c.EvalSha(ctx, scriptLoadSetSha, []string{key}, version, value).Result(); err == nil || err == redis.Nil {
 		err = nil
 	}
 
@@ -245,7 +245,7 @@ func RedisClearDirty(ctx context.Context, c *redis.Client, key string, version i
 		return err
 	}
 
-	if _, err = c.EvalSha(ctx, scriptClearDirtySha, []string{key}, version).Result(); err == nil || err.Error() == "redis: nil" {
+	if _, err = c.EvalSha(ctx, scriptClearDirtySha, []string{key}, version).Result(); err == nil || err == redis.Nil {
 		err = nil
 	}
 	return err
