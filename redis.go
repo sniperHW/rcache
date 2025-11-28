@@ -1,11 +1,12 @@
 package rcache
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
 
-	"github.com/go-redis/redis"
+	redis "github.com/redis/go-redis/v9"
 )
 
 var cacheTimeout = 1800
@@ -114,28 +115,28 @@ const scriptLoadSet string = `
 
 var scriptLoadSetSha string
 
-func InitScriptSha(cli *redis.Client) (err error) {
-	if scriptSetSha, err = cli.ScriptLoad(scriptSet).Result(); err != nil {
+func InitScriptSha(ctx context.Context, c *redis.Client) (err error) {
+	if scriptSetSha, err = c.ScriptLoad(ctx, scriptSet).Result(); err != nil {
 		err = fmt.Errorf("error on init scriptSet:%s", err.Error())
 		return err
 	}
 
-	if scriptGetSha, err = cli.ScriptLoad(fmt.Sprintf(scriptGet, cacheTimeout)).Result(); err != nil {
+	if scriptGetSha, err = c.ScriptLoad(ctx, fmt.Sprintf(scriptGet, cacheTimeout)).Result(); err != nil {
 		err = fmt.Errorf("error on init scriptGet:%s", err.Error())
 		return err
 	}
 
-	if scriptClearDirtySha, err = cli.ScriptLoad(fmt.Sprintf(scriptClearDirty, cacheTimeout)).Result(); err != nil {
+	if scriptClearDirtySha, err = c.ScriptLoad(ctx, fmt.Sprintf(scriptClearDirty, cacheTimeout)).Result(); err != nil {
 		err = fmt.Errorf("error on init scriptClearDirty:%s", err.Error())
 		return err
 	}
 
-	if scriptLoadGetSha, err = cli.ScriptLoad(fmt.Sprintf(scriptLoadGet, cacheTimeout)).Result(); err != nil {
+	if scriptLoadGetSha, err = c.ScriptLoad(ctx, fmt.Sprintf(scriptLoadGet, cacheTimeout)).Result(); err != nil {
 		err = fmt.Errorf("error on init scriptLoadGet:%s", err.Error())
 		return err
 	}
 
-	if scriptLoadSetSha, err = cli.ScriptLoad(fmt.Sprintf(scriptLoadSet, cacheTimeout)).Result(); err != nil {
+	if scriptLoadSetSha, err = c.ScriptLoad(ctx, fmt.Sprintf(scriptLoadSet, cacheTimeout)).Result(); err != nil {
 		err = fmt.Errorf("error on init scriptLoadSet:%s", err.Error())
 		return err
 	}
@@ -145,9 +146,9 @@ func InitScriptSha(cli *redis.Client) (err error) {
 
 var shaOnce sync.Once
 
-func RedisGet(cli *redis.Client, key string) (value string, version int, err error) {
+func RedisGet(ctx context.Context, c *redis.Client, key string) (value string, version int, err error) {
 	shaOnce.Do(func() {
-		err = InitScriptSha(cli)
+		err = InitScriptSha(ctx, c)
 	})
 
 	if err != nil {
@@ -155,7 +156,7 @@ func RedisGet(cli *redis.Client, key string) (value string, version int, err err
 	}
 
 	var re interface{}
-	if re, err = cli.EvalSha(scriptGetSha, []string{key}).Result(); err == nil || err.Error() == "redis: nil" {
+	if re, err = c.EvalSha(ctx, scriptGetSha, []string{key}).Result(); err == nil || err.Error() == "redis: nil" {
 		err = nil
 		result := re.([]interface{})
 		if len(result) == 1 {
@@ -168,17 +169,17 @@ func RedisGet(cli *redis.Client, key string) (value string, version int, err err
 	return value, version, err
 }
 
-func RedisSet(cli *redis.Client, key string, value string) (ver int, err error) {
-	return redisSet(cli, key, value, 0)
+func RedisSet(ctx context.Context, c *redis.Client, key string, value string) (ver int, err error) {
+	return redisSet(ctx, c, key, value, 0)
 }
 
-func RedisSetWithVersion(cli *redis.Client, key string, value string, version int) (ver int, err error) {
-	return redisSet(cli, key, value, version)
+func RedisSetWithVersion(ctx context.Context, c *redis.Client, key string, value string, version int) (ver int, err error) {
+	return redisSet(ctx, c, key, value, version)
 }
 
-func redisSet(cli *redis.Client, key string, value string, version int) (ver int, err error) {
+func redisSet(ctx context.Context, c *redis.Client, key string, value string, version int) (ver int, err error) {
 	shaOnce.Do(func() {
-		err = InitScriptSha(cli)
+		err = InitScriptSha(ctx, c)
 	})
 
 	if err != nil {
@@ -186,7 +187,7 @@ func redisSet(cli *redis.Client, key string, value string, version int) (ver int
 	}
 
 	var re interface{}
-	if re, err = cli.EvalSha(scriptSetSha, []string{key}, value, version).Result(); err == nil || err.Error() == "redis: nil" {
+	if re, err = c.EvalSha(ctx, scriptSetSha, []string{key}, value, version).Result(); err == nil || err.Error() == "redis: nil" {
 		result := re.([]interface{})
 		if len(result) == 1 {
 			err = errors.New(result[0].(string))
@@ -197,9 +198,9 @@ func redisSet(cli *redis.Client, key string, value string, version int) (ver int
 	return ver, err
 }
 
-func RedisLoadGet(cli *redis.Client, key string, version int, v string) (value string, ver int, err error) {
+func RedisLoadGet(ctx context.Context, c *redis.Client, key string, version int, v string) (value string, ver int, err error) {
 	shaOnce.Do(func() {
-		err = InitScriptSha(cli)
+		err = InitScriptSha(ctx, c)
 	})
 
 	if err != nil {
@@ -207,7 +208,7 @@ func RedisLoadGet(cli *redis.Client, key string, version int, v string) (value s
 	}
 
 	var r interface{}
-	if r, err = cli.EvalSha(scriptLoadGetSha, []string{key}, version, v).Result(); err == nil || err.Error() == "redis: nil" {
+	if r, err = c.EvalSha(ctx, scriptLoadGetSha, []string{key}, version, v).Result(); err == nil || err.Error() == "redis: nil" {
 		result := r.([]interface{})
 		if len(result) == 1 {
 			err = errors.New(result[0].(string))
@@ -219,32 +220,32 @@ func RedisLoadGet(cli *redis.Client, key string, version int, v string) (value s
 	return value, ver, err
 }
 
-func RedisLoadSet(cli *redis.Client, key string, version int, value string) (err error) {
+func RedisLoadSet(ctx context.Context, c *redis.Client, key string, version int, value string) (err error) {
 	shaOnce.Do(func() {
-		err = InitScriptSha(cli)
+		err = InitScriptSha(ctx, c)
 	})
 
 	if err != nil {
 		return err
 	}
 
-	if _, err = cli.EvalSha(scriptLoadSetSha, []string{key}, version, value).Result(); err == nil || err.Error() == "redis: nil" {
+	if _, err = c.EvalSha(ctx, scriptLoadSetSha, []string{key}, version, value).Result(); err == nil || err.Error() == "redis: nil" {
 		err = nil
 	}
 
 	return err
 }
 
-func RedisClearDirty(cli *redis.Client, key string, version int) (err error) {
+func RedisClearDirty(ctx context.Context, c *redis.Client, key string, version int) (err error) {
 	shaOnce.Do(func() {
-		err = InitScriptSha(cli)
+		err = InitScriptSha(ctx, c)
 	})
 
 	if err != nil {
 		return err
 	}
 
-	if _, err = cli.EvalSha(scriptClearDirtySha, []string{key}, version).Result(); err == nil || err.Error() == "redis: nil" {
+	if _, err = c.EvalSha(ctx, scriptClearDirtySha, []string{key}, version).Result(); err == nil || err.Error() == "redis: nil" {
 		err = nil
 	}
 	return err

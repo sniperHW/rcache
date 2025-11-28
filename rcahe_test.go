@@ -4,15 +4,16 @@ package rcache
 //go tool cover -html=coverage.out
 
 import (
+	"context"
 	"fmt"
 	"time"
 
 	//"sync"
 	"testing"
 	//"time"
-	"github.com/go-redis/redis"
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
+	redis "github.com/redis/go-redis/v9"
 )
 
 func TestRedisGet(t *testing.T) {
@@ -20,23 +21,23 @@ func TestRedisGet(t *testing.T) {
 		Addr: "localhost:6379",
 	})
 
-	cli.FlushAll().Result()
+	cli.FlushAll(context.TODO()).Result()
 
-	r, ver, err := RedisGet(cli, "hello")
-
-	fmt.Println(r, ver, err)
-
-	cli.Eval("redis.call('hmset','hello','version',1,'value','hello')", []string{})
-
-	r, ver, err = RedisGet(cli, "hello")
+	r, ver, err := RedisGet(context.Background(), cli, "hello")
 
 	fmt.Println(r, ver, err)
 
-	fmt.Println(cli.TTL("hello"))
+	cli.Eval(context.Background(), "redis.call('hmset','hello','version',1,'value','hello')", []string{})
 
-	cli.Eval("redis.call('del','hello')", []string{})
+	r, ver, err = RedisGet(context.Background(), cli, "hello")
 
-	r, ver, err = RedisGet(cli, "hello")
+	fmt.Println(r, ver, err)
+
+	fmt.Println(cli.TTL(context.Background(), "hello"))
+
+	cli.Eval(context.Background(), "redis.call('del','hello')", []string{})
+
+	r, ver, err = RedisGet(context.Background(), cli, "hello")
 
 	fmt.Println(r, ver, err)
 }
@@ -46,52 +47,52 @@ func TestRedisLoadGet(t *testing.T) {
 		Addr: "localhost:6379",
 	})
 
-	cli.FlushAll().Result()
+	cli.FlushAll(context.TODO()).Result()
 
-	r, v, err := RedisLoadGet(cli, "hello", 0, "")
+	r, v, err := RedisLoadGet(context.Background(), cli, "hello", 0, "")
 
 	fmt.Println("loadGet", r, v, err)
 
-	fmt.Println(cli.TTL("hello"))
+	fmt.Println(cli.TTL(context.Background(), "hello"))
 
-	fmt.Println(cli.Del("hello").Result())
+	fmt.Println(cli.Del(context.Background(), "hello").Result())
 
-	r, v, err = RedisLoadGet(cli, "hello", 1, "world")
+	r, v, err = RedisLoadGet(context.Background(), cli, "hello", 1, "world")
 
 	fmt.Println("loadGet again", r, v, err)
 
-	fmt.Println(cli.TTL("hello"))
+	fmt.Println(cli.TTL(context.Background(), "hello"))
 
-	fmt.Println(cli.Del("hello").Result())
+	fmt.Println(cli.Del(context.Background(), "hello").Result())
 }
 
 func TestRedisLoadSet(t *testing.T) {
 	cli := redis.NewClient(&redis.Options{
 		Addr: "localhost:6379",
 	})
-	cli.FlushAll().Result()
+	cli.FlushAll(context.TODO()).Result()
 
-	err := RedisLoadSet(cli, "hello", 2, "world")
+	err := RedisLoadSet(context.Background(), cli, "hello", 2, "world")
 
 	fmt.Println(err)
 
-	fmt.Println(cli.TTL("hello"))
+	fmt.Println(cli.TTL(context.Background(), "hello"))
 
 	time.Sleep(time.Second * 2)
 
-	err = RedisLoadSet(cli, "hello", 1, "world")
+	err = RedisLoadSet(context.Background(), cli, "hello", 1, "world")
 
 	fmt.Println(err)
 
-	fmt.Println(cli.TTL("hello"))
+	fmt.Println(cli.TTL(context.Background(), "hello"))
 
-	err = RedisLoadSet(cli, "hello", 3, "world")
+	err = RedisLoadSet(context.Background(), cli, "hello", 3, "world")
 
 	fmt.Println(err)
 
-	fmt.Println(cli.TTL("hello"))
+	fmt.Println(cli.TTL(context.Background(), "hello"))
 
-	fmt.Println(cli.Del("hello").Result())
+	fmt.Println(cli.Del(context.Background(), "hello").Result())
 }
 
 func TestRedisSet(t *testing.T) {
@@ -99,28 +100,28 @@ func TestRedisSet(t *testing.T) {
 		Addr: "localhost:6379",
 	})
 
-	cli.FlushAll().Result()
+	cli.FlushAll(context.Background()).Result()
 
-	ver, err := RedisSet(cli, "hello", "world")
+	ver, err := RedisSet(context.Background(), cli, "hello", "world")
 	fmt.Println(err, ver)
 
-	RedisLoadSet(cli, "hello", 1, "world")
+	RedisLoadSet(context.Background(), cli, "hello", 1, "world")
 
-	fmt.Println(RedisGet(cli, "hello"))
+	fmt.Println(RedisGet(context.Background(), cli, "hello"))
 
-	ver, err = RedisSet(cli, "hello", "world2")
+	ver, err = RedisSet(context.Background(), cli, "hello", "world2")
 	fmt.Println(err, ver)
 
-	fmt.Println(RedisGet(cli, "hello"))
+	fmt.Println(RedisGet(context.Background(), cli, "hello"))
 
 	//版本不一致，更新失败
-	ver, err = RedisSetWithVersion(cli, "hello", "world3", 1)
+	ver, err = RedisSetWithVersion(context.Background(), cli, "hello", "world3", 1)
 	fmt.Println(err, ver)
 
-	ver, err = RedisSetWithVersion(cli, "hello", "world3", ver)
+	ver, err = RedisSetWithVersion(context.Background(), cli, "hello", "world3", ver)
 	fmt.Println(err, ver)
 
-	fmt.Println(RedisGet(cli, "hello"))
+	fmt.Println(RedisGet(context.Background(), cli, "hello"))
 
 }
 
