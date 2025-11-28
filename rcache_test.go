@@ -159,7 +159,7 @@ func TestCacheGet(t *testing.T) {
 
 	defer dbc.Close()
 
-	proxy := NewDataProxy(cli, nil, dbc)
+	proxy := NewDataProxy(cli, dbc)
 
 	value, _, err := proxy.Get(context.TODO(), "hello")
 
@@ -187,7 +187,7 @@ func TestCacheSet(t *testing.T) {
 
 	defer dbc.Close()
 
-	proxy := NewDataProxy(cli, nil, dbc)
+	proxy := NewDataProxy(cli, dbc)
 
 	_, err = proxy.Set(context.TODO(), "hello", "world")
 
@@ -199,15 +199,27 @@ func TestCacheSet(t *testing.T) {
 
 }
 
+func TestRedisSetOnly(t *testing.T) {
+	cli := redis.NewClient(&redis.Options{
+		Addr: "localhost:6379",
+	})
+	cli.FlushAll(context.TODO()).Result()
+
+	beg := time.Now()
+	for i := 0; i < 5000; i++ {
+		_, err := cli.Set(context.TODO(), fmt.Sprintf("key:%d", i), fmt.Sprintf("value:%d", i), 0).Result()
+		if err != nil {
+			fmt.Println(err)
+		}
+	}
+	fmt.Println("use time:", time.Since(beg))
+}
+
 func TestScan(t *testing.T) {
 	dbc, _ := sqlx.Open("postgres", "host=localhost port=5432 dbname=test user=postgres password=802802 sslmode=disable")
 
 	cli := redis.NewClient(&redis.Options{
 		Addr: "localhost:6379",
-	})
-	scancli := redis.NewClient(&redis.Options{
-		Addr: "localhost:6379",
-		DB:   1,
 	})
 
 	dbc.ExecContext(context.TODO(), "delete from kv;")
@@ -215,15 +227,27 @@ func TestScan(t *testing.T) {
 
 	defer dbc.Close()
 
-	proxy := NewDataProxy(cli, scancli, dbc)
+	cacheTimeout = 30
 
-	for i := 0; i < 100; i++ {
+	proxy := NewDataProxy(cli, dbc)
+
+	for i := 0; i < 5000; i++ {
 		str := fmt.Sprintf("key:%d", i)
 		_, err := proxy.Set(context.TODO(), str, str)
 		if err != nil {
 			fmt.Println(err)
 		}
 	}
+
+	beg := time.Now()
+	for i := 0; i < 5000; i++ {
+		str := fmt.Sprintf("key:%d", i)
+		_, err := proxy.Set(context.TODO(), str, str)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}
+	fmt.Println("use time:", time.Since(beg))
 
 	err := proxy.SyncDirtyToDB(context.TODO())
 	if err != nil {
@@ -237,17 +261,13 @@ func TestRCache(t *testing.T) {
 	cli := redis.NewClient(&redis.Options{
 		Addr: "localhost:6379",
 	})
-	scancli := redis.NewClient(&redis.Options{
-		Addr: "localhost:6379",
-		DB:   1,
-	})
 
 	dbc.ExecContext(context.TODO(), "delete from kv;")
 	cli.FlushAll(context.TODO()).Result()
 
 	defer dbc.Close()
 
-	proxy := NewDataProxy(cli, scancli, dbc)
+	proxy := NewDataProxy(cli, dbc)
 
 	cacheTimeout = 5
 

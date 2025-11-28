@@ -12,14 +12,12 @@ import (
 
 type DataProxy struct {
 	redisC *redis.Client
-	scanC  *redis.Client
 	dbc    *sqlx.DB
 }
 
-func NewDataProxy(redisC *redis.Client, scanC *redis.Client, dbc *sqlx.DB) *DataProxy {
+func NewDataProxy(redisC *redis.Client, dbc *sqlx.DB) *DataProxy {
 	return &DataProxy{
 		redisC: redisC,
-		scanC:  scanC,
 		dbc:    dbc,
 	}
 }
@@ -81,12 +79,12 @@ func (p *DataProxy) SyncDirtyToDB(ctx context.Context) error {
 	var err error
 
 	for {
-		keys, cursor, err = p.scanC.Scan(ctx, cursor, "", 10).Result()
+		keys, cursor, err = p.redisC.HScan(ctx, "__dirty__", cursor, "", 100).Result()
 		if err != nil {
 			return err
 		}
-
-		for _, key := range keys {
+		for i := 0; i < len(keys); i = i + 2 {
+			key := keys[i]
 			r, err := p.redisC.HMGet(ctx, key, "version", "value").Result()
 			if err != nil {
 				return err

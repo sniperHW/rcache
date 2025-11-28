@@ -13,7 +13,6 @@ var cacheTimeout = 1800
 
 const scriptSet string = `
 	local input_version = tonumber(ARGV[2])
-	redis.call('select',0)
 	local version = redis.call('hget',KEYS[1],'version')
 	if not version then
 		return {'err_not_in_redis'}
@@ -26,10 +25,9 @@ const scriptSet string = `
 		redis.call('hmset',KEYS[1],'version',version,'value',ARGV[1])
 		--清除ttl
 		redis.call('PERSIST',KEYS[1])
+		
 		--设置dirty
-		redis.call('select',1)
-		redis.call('hmset',KEYS[1],'version',version)
-		redis.call('select',0)
+		redis.call('hset','__dirty__', KEYS[1],version)
 		return {'err_ok',version}
 	end
 `
@@ -38,7 +36,6 @@ var scriptSetSha string
 
 const scriptGet string = `
 	local cacheTimeout = %d
-	redis.call('select',0)
 	local v = redis.call('hmget',KEYS[1],'version','value')
 	local version = v[1]
 	local value = v[2]
@@ -59,14 +56,10 @@ var scriptGetSha string
 
 const scriptClearDirty string = `
 	local cacheTimeout = %d
-	redis.call('select',1)
-	local version = redis.call('hget',KEYS[1],'version')
+	local version = redis.call('hget','__dirty__',KEYS[1])
 	if tonumber(version) == tonumber(ARGV[1]) then
-		redis.call('del',KEYS[1])
-		redis.call('select',0)
+		redis.call('hdel', '__dirty__', KEYS[1])
 		redis.call('Expire',KEYS[1],cacheTimeout)
-	else
-		redis.call('select',0)
 	end
 `
 
@@ -74,7 +67,6 @@ var scriptClearDirtySha string
 
 const scriptLoadGet string = `
 	local cacheTimeout = %d
-	redis.call('select',0)
 	local v = redis.call('hmget',KEYS[1],'version','value')
 	local version = v[1]
 	local value = v[2]
