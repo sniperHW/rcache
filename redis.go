@@ -31,6 +31,7 @@ const scriptSet string = `
 var scriptSetSha string
 
 const scriptGet string = `
+	local cacheTimeout = %d
 	redis.call('select',0)
 	local v = redis.call('hmget',KEYS[1],'version','value')
 	local version = v[1]
@@ -42,7 +43,7 @@ const scriptGet string = `
 	else
 		local ttl = redis.call('ttl',KEYS[1])
 		if tonumber(ttl) > 0 then
-			redis.call('Expire',KEYS[1],%d) --30分钟后超时
+			redis.call('Expire',KEYS[1],cacheTimeout)
 		end
 		return {'err_ok',value}
 	end
@@ -51,12 +52,13 @@ const scriptGet string = `
 var scriptGetSha string
 
 const scriptClearDirty string = `
+	local cacheTimeout = %d
 	redis.call('select',1)
 	local version = redis.call('hget',KEYS[1],'version')
 	if tonumber(version) == tonumber(ARGV[1]) then
 		redis.call('del',KEYS[1])
 		redis.call('select',0)
-		redis.call('Expire',KEYS[1],%d) --30分钟后超时
+		redis.call('Expire',KEYS[1],cacheTimeout)
 	else
 		redis.call('select',0)
 	end
@@ -65,6 +67,7 @@ const scriptClearDirty string = `
 var scriptClearDirtySha string
 
 const scriptLoadGet string = `
+	local cacheTimeout = %d
 	redis.call('select',0)
 	local v = redis.call('hmget',KEYS[1],'version','value')
 	local version = v[1]
@@ -72,7 +75,7 @@ const scriptLoadGet string = `
 	if version then
 		local ttl = redis.call('ttl',KEYS[1])
 		if tonumber(ttl) > 0 then
-			redis.call('Expire',KEYS[1],%d) --30分钟后超时
+			redis.call('Expire',KEYS[1],cacheTimeout)
 		end
 		if tonumber(version) > 0 then
 			return {'err_ok',value}
@@ -82,11 +85,11 @@ const scriptLoadGet string = `
 	else
 		if tonumber(ARGV[1]) > 0 then
 			redis.call('hmset',KEYS[1],'version',ARGV[1],'value',ARGV[2])
-			redis.call('Expire',KEYS[1],1800) --30分钟后超时
+			redis.call('Expire',KEYS[1],cacheTimeout)
 			return {'err_ok',ARGV[2]}	
 		else
 			redis.call('hmset',KEYS[1],'version',ARGV[1])
-			redis.call('Expire',KEYS[1],%d) --30分钟后超时
+			redis.call('Expire',KEYS[1],cacheTimeout)
 			return {'err_not_exist'}				
 		end
 	end
@@ -95,11 +98,12 @@ const scriptLoadGet string = `
 var scriptLoadGetSha string
 
 const scriptLoadSet string = `
+	local cacheTimeout = %d
 	redis.call('select',0)
 	local version = redis.call('hget',KEYS[1],'version')
 	if not version or tonumber(version) < tonumber(ARGV[1]) then
 		redis.call('hmset',KEYS[1],'version',ARGV[1],'value',ARGV[2])
-		redis.call('Expire',KEYS[1],%d) --30分钟后超时
+		redis.call('Expire',KEYS[1],cacheTimeout)
 	end
 `
 
@@ -121,7 +125,7 @@ func InitScriptSha(cli *redis.Client) (err error) {
 		return err
 	}
 
-	if scriptLoadGetSha, err = cli.ScriptLoad(fmt.Sprintf(scriptLoadGet, cacheTimeout, cacheTimeout)).Result(); err != nil {
+	if scriptLoadGetSha, err = cli.ScriptLoad(fmt.Sprintf(scriptLoadGet, cacheTimeout)).Result(); err != nil {
 		err = fmt.Errorf("error on init scriptLoadGet:%s", err.Error())
 		return err
 	}
