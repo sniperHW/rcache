@@ -11,6 +11,8 @@ import (
 
 var cacheTimeout = 1800
 
+const dirtyKey = "__dirty__"
+
 const scriptSet string = `
 	local input_version = tonumber(ARGV[2])
 	local version = redis.call('hget',KEYS[1],'version')
@@ -27,7 +29,7 @@ const scriptSet string = `
 		redis.call('PERSIST',KEYS[1])
 		
 		--设置dirty
-		redis.call('hset','__dirty__', KEYS[1],version)
+		redis.call('hset',KEYS[2], KEYS[1],version)
 		return {'err_ok',version}
 	end
 `
@@ -56,10 +58,12 @@ var scriptGetSha string
 
 const scriptClearDirty string = `
 	local cacheTimeout = %d
-	local version = redis.call('hget','__dirty__',KEYS[1])
+	local dirtyKey = KEYS[1]
+	local key = KEYS[2]
+	local version = redis.call('hget',dirtyKey,key)
 	if tonumber(version) == tonumber(ARGV[1]) then
-		redis.call('hdel', '__dirty__', KEYS[1])
-		redis.call('Expire',KEYS[1],cacheTimeout)
+		redis.call('hdel', dirtyKey,key)
+		redis.call('Expire',key,cacheTimeout)
 	end
 `
 
@@ -179,7 +183,7 @@ func redisSet(ctx context.Context, c *redis.Client, key string, value string, ve
 	}
 
 	var re interface{}
-	if re, err = c.EvalSha(ctx, scriptSetSha, []string{key}, value, version).Result(); err == nil || err == redis.Nil {
+	if re, err = c.EvalSha(ctx, scriptSetSha, []string{key, dirtyKey}, value, version).Result(); err == nil || err == redis.Nil {
 		result := re.([]interface{})
 		if len(result) == 1 {
 			err = errors.New(result[0].(string))
@@ -237,7 +241,7 @@ func RedisClearDirty(ctx context.Context, c *redis.Client, key string, version i
 		return err
 	}
 
-	if _, err = c.EvalSha(ctx, scriptClearDirtySha, []string{key}, version).Result(); err == nil || err == redis.Nil {
+	if _, err = c.EvalSha(ctx, scriptClearDirtySha, []string{dirtyKey, key}, version).Result(); err == nil || err == redis.Nil {
 		err = nil
 	}
 	return err
