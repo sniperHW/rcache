@@ -79,7 +79,7 @@ func (p *DataProxy) SyncDirtyToDB(ctx context.Context) error {
 	var err error
 
 	for {
-		keys, cursor, err = p.redisC.HScan(ctx, "__dirty__", cursor, "", 100).Result()
+		keys, cursor, err = p.redisC.HScan(ctx, dirtyKey, cursor, "", 100).Result()
 		if err != nil {
 			return err
 		}
