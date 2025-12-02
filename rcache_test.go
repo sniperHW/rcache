@@ -194,6 +194,19 @@ func TestCacheSet(t *testing.T) {
 
 	fmt.Println(cli.TTL(context.TODO(), "hello").Result())
 
+	proxy.Set(context.TODO(), "hello", "world2", 10)
+
+	fmt.Println(cli.HGet(context.TODO(), "hello", "version").Int())
+
+	fmt.Println(cli.TTL(context.TODO(), "hello").Result())
+
+	err = proxy.SyncDirtyToDB(context.TODO())
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	fmt.Println(cli.TTL(context.TODO(), "hello").Result())
+
 }
 
 func TestRedisSetOnly(t *testing.T) {

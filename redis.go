@@ -46,6 +46,7 @@ const scriptSet string = `
 	else
         version = tonumber(version)
         if input_version > 0 and version ~= input_version then
+			redis.call('Expire',KEYS[1],cacheTimeout)
 			return {'err_version_not_match'}
 		end	   
 		version = version + 1
@@ -61,14 +62,13 @@ const scriptSet string = `
 
 const scriptGet string = `
 	local cacheTimeout = ARGV[1]
-	local v = redis.call('hmget',KEYS[1],'version','value')
+	local v = redis.call('hmget',KEYS[1],'version','value','__cache_timeout__')
 	local version = v[1]
 	local value = v[2]
 	if not version then
 		return {'err_not_in_redis'}
 	else
-		local ttl = redis.call('ttl',KEYS[1])
-		if tonumber(ttl) > 0 then
+		if not v[3] then
 			redis.call('Expire',KEYS[1],cacheTimeout)
 		end
 		
@@ -88,23 +88,23 @@ const scriptClearDirty string = `
 	if tonumber(version) == tonumber(ARGV[1]) then
 		redis.call('hdel', dirtyKey,key)
 		local cacheTimeout = redis.call('hget',key,'__cache_timeout__')
-		if not cacheTimeout then
-			cacheTimeout = ARGV[2]
+		if cacheTimeout then
+			redis.call('hdel', key,'__cache_timeout__')
+			redis.call('Expire',key,cacheTimeout)
 		end
-		redis.call('Expire',key,cacheTimeout)
 	end
 `
 
 const scriptLoadGet string = `
 	local cacheTimeout = ARGV[3]
-	local v = redis.call('hmget',KEYS[1],'version','value')
+	local v = redis.call('hmget',KEYS[1],'version','value','__cache_timeout__')
 	local version = v[1]
 	local value = v[2]
 	if version then
-		local ttl = redis.call('ttl',KEYS[1])
-		if tonumber(ttl) > 0 then
+		if not v[3] then
 			redis.call('Expire',KEYS[1],cacheTimeout)
 		end
+
 		if tonumber(version) > 0 then
 			return {'err_ok',value,tonumber(version)}
 		else 
@@ -229,7 +229,7 @@ func RedisLoadSet(ctx context.Context, c *redis.Client, key string, version int,
 }
 
 func RedisClearDirty(ctx context.Context, c *redis.Client, key string, version int) (err error) {
-	if _, err = cleardirty.eval(ctx, c, []string{dirtyKey, key}, version, defaultCacheTimeout); err == redis.Nil {
+	if _, err = cleardirty.eval(ctx, c, []string{dirtyKey, key}, version); err == redis.Nil {
 		err = nil
 	}
 	return err
