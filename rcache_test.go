@@ -160,7 +160,7 @@ func TestCacheGet(t *testing.T) {
 
 	proxy := NewDataProxy(cli, dbc)
 
-	value, _, err := proxy.Get(context.TODO(), "hello")
+	value, _, err := proxy.Get(context.TODO(), "hello", 10)
 
 	fmt.Println(value, err)
 
@@ -203,7 +203,7 @@ func TestRedisSetOnly(t *testing.T) {
 
 	beg := time.Now()
 	for i := 0; i < 5000; i++ {
-		_, err := cli.Set(context.TODO(), fmt.Sprintf("key:%d", i), fmt.Sprintf("value:%d", i), 0).Result()
+		_, err := cli.Set(context.TODO(), fmt.Sprintf("key:%d", i), fmt.Sprintf("value:%d", i), time.Second*10).Result()
 		if err != nil {
 			fmt.Println(err)
 		}
@@ -214,7 +214,7 @@ func TestRedisSetOnly(t *testing.T) {
 func TestScan(t *testing.T) {
 	dbc, _ := sqlx.Open("postgres", "host=localhost port=5432 dbname=test user=postgres password=802802 sslmode=disable")
 
-	cacheTimeout = 30
+	//defaultCacheTimeout = 30
 
 	cli := initRedis()
 
@@ -227,7 +227,7 @@ func TestScan(t *testing.T) {
 
 	for i := 0; i < 5000; i++ {
 		str := fmt.Sprintf("key:%d", i)
-		_, err := proxy.Set(context.TODO(), str, str)
+		_, err := proxy.Set(context.TODO(), str, str, 30)
 		if err != nil {
 			fmt.Println(err)
 		}
@@ -236,7 +236,7 @@ func TestScan(t *testing.T) {
 	beg := time.Now()
 	for i := 0; i < 5000; i++ {
 		str := fmt.Sprintf("key:%d", i)
-		_, err := proxy.Set(context.TODO(), str, str)
+		_, err := proxy.Set(context.TODO(), str, str, 30)
 		if err != nil {
 			fmt.Println(err)
 		}
@@ -252,7 +252,7 @@ func TestScan(t *testing.T) {
 func TestRCache(t *testing.T) {
 	dbc, _ := sqlx.Open("postgres", "host=localhost port=5432 dbname=test user=postgres password=802802 sslmode=disable")
 
-	cacheTimeout = 5
+	defaultCacheTimeout = 5
 
 	cli := initRedis()
 

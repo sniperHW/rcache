@@ -11,7 +11,7 @@ import (
 	redis "github.com/redis/go-redis/v9"
 )
 
-var cacheTimeout = 1800
+var defaultCacheTimeout = 1800
 
 type script struct {
 	src string
@@ -38,6 +38,7 @@ func (s *script) eval(ctx context.Context, c *redis.Client, keys []string, args 
 const dirtyKey = "__dirty__"
 
 const scriptSet string = `
+	local cacheTimeout = ARGV[3]
 	local input_version = tonumber(ARGV[2])
 	local version = redis.call('hget',KEYS[1],'version')
 	if not version then
@@ -48,7 +49,7 @@ const scriptSet string = `
 			return {'err_version_not_match'}
 		end	   
 		version = version + 1
-		redis.call('hmset',KEYS[1],'version',version,'value',ARGV[1])
+		redis.call('hmset',KEYS[1],'version',version,'value',ARGV[1],'__cache_timeout__',cacheTimeout)
 		--清除ttl
 		redis.call('PERSIST',KEYS[1])
 		
@@ -77,12 +78,15 @@ const scriptGet string = `
 `
 
 const scriptClearDirty string = `
-	local cacheTimeout = ARGV[2]
 	local dirtyKey = KEYS[1]
 	local key = KEYS[2]
 	local version = redis.call('hget',dirtyKey,key)
 	if tonumber(version) == tonumber(ARGV[1]) then
 		redis.call('hdel', dirtyKey,key)
+		local cacheTimeout = redis.call('hget',key,'__cache_timeout__')
+		if not cacheTimeout then
+			cacheTimeout = ARGV[2]
+		end
 		redis.call('Expire',key,cacheTimeout)
 	end
 `
@@ -145,9 +149,15 @@ func InitScript() {
 	cleardirty = newScript(scriptClearDirty)
 }
 
-func RedisGet(ctx context.Context, c *redis.Client, key string) (value string, version int, err error) {
+func RedisGet(ctx context.Context, c *redis.Client, key string, cacheTimeout ...int) (value string, version int, err error) {
+
+	cacheTime := defaultCacheTimeout
+	if len(cacheTimeout) > 0 {
+		cacheTime = cacheTimeout[0]
+	}
+
 	var re interface{}
-	if re, err = get.eval(ctx, c, []string{key}, cacheTimeout); err == nil {
+	if re, err = get.eval(ctx, c, []string{key}, cacheTime); err == nil {
 		result := re.([]interface{})
 		if len(result) == 1 {
 			err = errors.New(result[0].(string))
@@ -159,17 +169,22 @@ func RedisGet(ctx context.Context, c *redis.Client, key string) (value string, v
 	return value, version, err
 }
 
-func RedisSet(ctx context.Context, c *redis.Client, key string, value string) (ver int, err error) {
-	return redisSet(ctx, c, key, value, 0)
+func RedisSet(ctx context.Context, c *redis.Client, key string, value string, cacheTimeout ...int) (ver int, err error) {
+	return redisSet(ctx, c, key, value, 0, cacheTimeout...)
 }
 
-func RedisSetWithVersion(ctx context.Context, c *redis.Client, key string, value string, version int) (ver int, err error) {
-	return redisSet(ctx, c, key, value, version)
+func RedisSetWithVersion(ctx context.Context, c *redis.Client, key string, value string, version int, cacheTimeout ...int) (ver int, err error) {
+	return redisSet(ctx, c, key, value, version, cacheTimeout...)
 }
 
-func redisSet(ctx context.Context, c *redis.Client, key string, value string, version int) (ver int, err error) {
+func redisSet(ctx context.Context, c *redis.Client, key string, value string, version int, cacheTimeout ...int) (ver int, err error) {
+	cacheTime := defaultCacheTimeout
+	if len(cacheTimeout) > 0 {
+		cacheTime = cacheTimeout[0]
+	}
+
 	var re interface{}
-	if re, err = set.eval(ctx, c, []string{key, dirtyKey}, value, version); err == nil {
+	if re, err = set.eval(ctx, c, []string{key, dirtyKey}, value, version, cacheTime); err == nil {
 		result := re.([]interface{})
 		if len(result) == 1 {
 			err = errors.New(result[0].(string))
@@ -180,9 +195,13 @@ func redisSet(ctx context.Context, c *redis.Client, key string, value string, ve
 	return ver, err
 }
 
-func RedisLoadGet(ctx context.Context, c *redis.Client, key string, version int, v string) (value string, ver int, err error) {
+func RedisLoadGet(ctx context.Context, c *redis.Client, key string, version int, v string, cacheTimeout ...int) (value string, ver int, err error) {
+	cacheTime := defaultCacheTimeout
+	if len(cacheTimeout) > 0 {
+		cacheTime = cacheTimeout[0]
+	}
 	var r interface{}
-	if r, err = loadget.eval(ctx, c, []string{key}, version, v, cacheTimeout); err == nil {
+	if r, err = loadget.eval(ctx, c, []string{key}, version, v, cacheTime); err == nil {
 		result := r.([]interface{})
 		if len(result) == 1 {
 			err = errors.New(result[0].(string))
@@ -194,15 +213,19 @@ func RedisLoadGet(ctx context.Context, c *redis.Client, key string, version int,
 	return value, ver, err
 }
 
-func RedisLoadSet(ctx context.Context, c *redis.Client, key string, version int, value string) (err error) {
-	if _, err = loadset.eval(ctx, c, []string{key}, version, value, cacheTimeout); err == redis.Nil {
+func RedisLoadSet(ctx context.Context, c *redis.Client, key string, version int, value string, cacheTimeout ...int) (err error) {
+	cacheTime := defaultCacheTimeout
+	if len(cacheTimeout) > 0 {
+		cacheTime = cacheTimeout[0]
+	}
+	if _, err = loadset.eval(ctx, c, []string{key}, version, value, cacheTime); err == redis.Nil {
 		err = nil
 	}
 	return err
 }
 
 func RedisClearDirty(ctx context.Context, c *redis.Client, key string, version int) (err error) {
-	if _, err = cleardirty.eval(ctx, c, []string{dirtyKey, key}, version, cacheTimeout); err == redis.Nil {
+	if _, err = cleardirty.eval(ctx, c, []string{dirtyKey, key}, version, defaultCacheTimeout); err == redis.Nil {
 		err = nil
 	}
 	return err

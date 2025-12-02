@@ -22,22 +22,23 @@ func NewDataProxy(redisC *redis.Client, dbc *sqlx.DB) *DataProxy {
 	}
 }
 
-func (p *DataProxy) Set(ctx context.Context, key string, value string, version ...int) (ver int, err error) {
-	if len(version) > 0 && version[0] > 0 {
-		return p.setWithVersion(ctx, key, value, version[0])
-	}
-	return p.set(ctx, key, value)
+func (p *DataProxy) SetWithVersion(ctx context.Context, key string, value string, version int, cacheTimeout ...int) (ver int, err error) {
+	return p.setWithVersion(ctx, key, value, version, cacheTimeout...)
 }
 
-func (p *DataProxy) set(ctx context.Context, key string, value string) (ver int, err error) {
+func (p *DataProxy) Set(ctx context.Context, key string, value string, cacheTimeout ...int) (ver int, err error) {
+	return p.set(ctx, key, value, cacheTimeout...)
+}
+
+func (p *DataProxy) set(ctx context.Context, key string, value string, cacheTimeout ...int) (ver int, err error) {
 	//尝试直接更新redis
-	if ver, err = RedisSet(ctx, p.redisC, key, value); err != nil {
+	if ver, err = RedisSet(ctx, p.redisC, key, value, cacheTimeout...); err != nil {
 		if err.Error() == "err_not_in_redis" {
 			//写入数据库
 			var dbversion int
 			if dbversion, err = insertUpdateRowPgsql(ctx, p.dbc, key, value); err == nil {
 				ver = dbversion
-				RedisLoadSet(ctx, p.redisC, key, dbversion, value)
+				RedisLoadSet(ctx, p.redisC, key, dbversion, value, cacheTimeout...)
 			}
 		}
 	}
@@ -45,28 +46,28 @@ func (p *DataProxy) set(ctx context.Context, key string, value string) (ver int,
 }
 
 // 只有版本号一致才能更新
-func (p *DataProxy) setWithVersion(ctx context.Context, key string, value string, version int) (ver int, err error) {
-	if ver, err = RedisSetWithVersion(ctx, p.redisC, key, value, version); err != nil {
+func (p *DataProxy) setWithVersion(ctx context.Context, key string, value string, version int, cacheTimeout ...int) (ver int, err error) {
+	if ver, err = RedisSetWithVersion(ctx, p.redisC, key, value, version, cacheTimeout...); err != nil {
 		if err.Error() == "err_not_in_redis" {
 			//先尝试更新数据库
 			var dbversion int
 			if dbversion, err = updateRowPgsql(ctx, p.dbc, key, value, version); err == nil {
 				ver = dbversion
-				RedisLoadSet(ctx, p.redisC, key, dbversion, value)
+				RedisLoadSet(ctx, p.redisC, key, dbversion, value, cacheTimeout...)
 			}
 		}
 	}
 	return ver, err
 }
 
-func (p *DataProxy) Get(ctx context.Context, key string) (value string, ver int, err error) {
-	if value, ver, err = RedisGet(ctx, p.redisC, key); err != nil {
+func (p *DataProxy) Get(ctx context.Context, key string, cacheTimeout ...int) (value string, ver int, err error) {
+	if value, ver, err = RedisGet(ctx, p.redisC, key, cacheTimeout...); err != nil {
 		if err.Error() == "err_not_in_redis" {
 			//从数据库加载
 			var version int
 			version, value, err = queryRow(ctx, p.dbc, key)
 			if err == nil || err == dbsql.ErrNoRows {
-				value, ver, err = RedisLoadGet(ctx, p.redisC, key, version, value)
+				value, ver, err = RedisLoadGet(ctx, p.redisC, key, version, value, cacheTimeout...)
 			}
 		}
 	}
