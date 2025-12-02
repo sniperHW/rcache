@@ -18,10 +18,19 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestRedisGet(t *testing.T) {
+func initRedis() *redis.Client {
 	cli := redis.NewClient(&redis.Options{
 		Addr: "localhost:6379",
 	})
+	err := InitScript(context.Background(), cli)
+	if err != nil {
+		panic(err)
+	}
+	return cli
+}
+
+func TestRedisGet(t *testing.T) {
+	cli := initRedis()
 
 	cli.FlushAll(context.TODO()).Result()
 
@@ -45,9 +54,7 @@ func TestRedisGet(t *testing.T) {
 }
 
 func TestRedisLoadGet(t *testing.T) {
-	cli := redis.NewClient(&redis.Options{
-		Addr: "localhost:6379",
-	})
+	cli := initRedis()
 
 	cli.FlushAll(context.TODO()).Result()
 
@@ -69,9 +76,8 @@ func TestRedisLoadGet(t *testing.T) {
 }
 
 func TestRedisLoadSet(t *testing.T) {
-	cli := redis.NewClient(&redis.Options{
-		Addr: "localhost:6379",
-	})
+	cli := initRedis()
+
 	cli.FlushAll(context.TODO()).Result()
 
 	err := RedisLoadSet(context.Background(), cli, "hello", 2, "world")
@@ -98,9 +104,7 @@ func TestRedisLoadSet(t *testing.T) {
 }
 
 func TestRedisSet(t *testing.T) {
-	cli := redis.NewClient(&redis.Options{
-		Addr: "localhost:6379",
-	})
+	cli := initRedis()
 
 	cli.FlushAll(context.Background()).Result()
 
@@ -150,9 +154,7 @@ func TestCacheGet(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cli := redis.NewClient(&redis.Options{
-		Addr: "localhost:6379",
-	})
+	cli := initRedis()
 
 	dbc.ExecContext(context.TODO(), "delete from kv;")
 	cli.FlushAll(context.TODO()).Result()
@@ -178,9 +180,7 @@ func TestCacheSet(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cli := redis.NewClient(&redis.Options{
-		Addr: "localhost:6379",
-	})
+	cli := initRedis()
 
 	dbc.ExecContext(context.TODO(), "delete from kv;")
 	cli.FlushAll(context.TODO()).Result()
@@ -200,9 +200,8 @@ func TestCacheSet(t *testing.T) {
 }
 
 func TestRedisSetOnly(t *testing.T) {
-	cli := redis.NewClient(&redis.Options{
-		Addr: "localhost:6379",
-	})
+	cli := initRedis()
+
 	cli.FlushAll(context.TODO()).Result()
 
 	beg := time.Now()
@@ -218,16 +217,14 @@ func TestRedisSetOnly(t *testing.T) {
 func TestScan(t *testing.T) {
 	dbc, _ := sqlx.Open("postgres", "host=localhost port=5432 dbname=test user=postgres password=802802 sslmode=disable")
 
-	cli := redis.NewClient(&redis.Options{
-		Addr: "localhost:6379",
-	})
+	cacheTimeout = 30
+
+	cli := initRedis()
 
 	dbc.ExecContext(context.TODO(), "delete from kv;")
 	cli.FlushAll(context.TODO()).Result()
 
 	defer dbc.Close()
-
-	cacheTimeout = 30
 
 	proxy := NewDataProxy(cli, dbc)
 
@@ -258,9 +255,9 @@ func TestScan(t *testing.T) {
 func TestRCache(t *testing.T) {
 	dbc, _ := sqlx.Open("postgres", "host=localhost port=5432 dbname=test user=postgres password=802802 sslmode=disable")
 
-	cli := redis.NewClient(&redis.Options{
-		Addr: "localhost:6379",
-	})
+	cacheTimeout = 5
+
+	cli := initRedis()
 
 	dbc.ExecContext(context.TODO(), "delete from kv;")
 	cli.FlushAll(context.TODO()).Result()
@@ -268,8 +265,6 @@ func TestRCache(t *testing.T) {
 	defer dbc.Close()
 
 	proxy := NewDataProxy(cli, dbc)
-
-	cacheTimeout = 5
 
 	value, _, err := proxy.Get(context.TODO(), "testkey")
 

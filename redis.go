@@ -4,12 +4,37 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
+	"strings"
 
 	redis "github.com/redis/go-redis/v9"
 )
 
 var cacheTimeout = 1800
+
+type script struct {
+	src string
+	sha string
+}
+
+func newScript(ctx context.Context, c *redis.Client, src string) (*script, error) {
+	s := &script{
+		src: src,
+	}
+	return s, s.load(ctx, c)
+}
+
+func (s *script) load(ctx context.Context, c *redis.Client) (err error) {
+	s.sha, err = c.ScriptLoad(ctx, s.src).Result()
+	return err
+}
+
+func (s *script) eval(ctx context.Context, c *redis.Client, keys []string, args ...interface{}) (result interface{}, err error) {
+	result, err = c.EvalSha(ctx, s.sha, keys, args...).Result()
+	if err != nil && strings.Contains(err.Error(), "NOSCRIPT") {
+		result, err = c.Eval(ctx, s.src, keys, args...).Result()
+	}
+	return
+}
 
 const dirtyKey = "__dirty__"
 
@@ -34,8 +59,6 @@ const scriptSet string = `
 	end
 `
 
-var scriptSetSha string
-
 const scriptGet string = `
 	local cacheTimeout = %d
 	local v = redis.call('hmget',KEYS[1],'version','value')
@@ -54,8 +77,6 @@ const scriptGet string = `
 	end
 `
 
-var scriptGetSha string
-
 const scriptClearDirty string = `
 	local cacheTimeout = %d
 	local dirtyKey = KEYS[1]
@@ -66,8 +87,6 @@ const scriptClearDirty string = `
 		redis.call('Expire',key,cacheTimeout)
 	end
 `
-
-var scriptClearDirtySha string
 
 const scriptLoadGet string = `
 	local cacheTimeout = %d
@@ -97,8 +116,6 @@ const scriptLoadGet string = `
 	end
 `
 
-var scriptLoadGetSha string
-
 const scriptLoadSet string = `
 	local cacheTimeout = %d
 	redis.call('select',0)
@@ -109,51 +126,46 @@ const scriptLoadSet string = `
 	end
 `
 
-var scriptLoadSetSha string
+var (
+	set        *script
+	get        *script
+	loadset    *script
+	loadget    *script
+	cleardirty *script
+)
 
-func InitScriptSha(ctx context.Context, c *redis.Client) (err error) {
-	if scriptSetSha, err = c.ScriptLoad(ctx, scriptSet).Result(); err != nil {
-		err = fmt.Errorf("error on init scriptSet:%s", err.Error())
+func InitScript(ctx context.Context, c *redis.Client) (err error) {
+	set, err = newScript(ctx, c, scriptSet)
+	if err != nil {
 		return err
 	}
 
-	if scriptGetSha, err = c.ScriptLoad(ctx, fmt.Sprintf(scriptGet, cacheTimeout)).Result(); err != nil {
-		err = fmt.Errorf("error on init scriptGet:%s", err.Error())
+	get, err = newScript(ctx, c, fmt.Sprintf(scriptGet, cacheTimeout))
+	if err != nil {
 		return err
 	}
 
-	if scriptClearDirtySha, err = c.ScriptLoad(ctx, fmt.Sprintf(scriptClearDirty, cacheTimeout)).Result(); err != nil {
-		err = fmt.Errorf("error on init scriptClearDirty:%s", err.Error())
+	loadset, err = newScript(ctx, c, fmt.Sprintf(scriptLoadSet, cacheTimeout))
+	if err != nil {
 		return err
 	}
 
-	if scriptLoadGetSha, err = c.ScriptLoad(ctx, fmt.Sprintf(scriptLoadGet, cacheTimeout)).Result(); err != nil {
-		err = fmt.Errorf("error on init scriptLoadGet:%s", err.Error())
+	loadget, err = newScript(ctx, c, fmt.Sprintf(scriptLoadGet, cacheTimeout))
+	if err != nil {
 		return err
 	}
 
-	if scriptLoadSetSha, err = c.ScriptLoad(ctx, fmt.Sprintf(scriptLoadSet, cacheTimeout)).Result(); err != nil {
-		err = fmt.Errorf("error on init scriptLoadSet:%s", err.Error())
+	cleardirty, err = newScript(ctx, c, fmt.Sprintf(scriptClearDirty, cacheTimeout))
+	if err != nil {
 		return err
 	}
 
 	return err
 }
 
-var shaOnce sync.Once
-
 func RedisGet(ctx context.Context, c *redis.Client, key string) (value string, version int, err error) {
-	shaOnce.Do(func() {
-		err = InitScriptSha(ctx, c)
-	})
-
-	if err != nil {
-		return value, version, err
-	}
-
 	var re interface{}
-	if re, err = c.EvalSha(ctx, scriptGetSha, []string{key}).Result(); err == nil || err == redis.Nil {
-		err = nil
+	if re, err = get.eval(ctx, c, []string{key}); err == nil {
 		result := re.([]interface{})
 		if len(result) == 1 {
 			err = errors.New(result[0].(string))
@@ -174,16 +186,8 @@ func RedisSetWithVersion(ctx context.Context, c *redis.Client, key string, value
 }
 
 func redisSet(ctx context.Context, c *redis.Client, key string, value string, version int) (ver int, err error) {
-	shaOnce.Do(func() {
-		err = InitScriptSha(ctx, c)
-	})
-
-	if err != nil {
-		return ver, err
-	}
-
 	var re interface{}
-	if re, err = c.EvalSha(ctx, scriptSetSha, []string{key, dirtyKey}, value, version).Result(); err == nil || err == redis.Nil {
+	if re, err = set.eval(ctx, c, []string{key, dirtyKey}, value, version); err == nil {
 		result := re.([]interface{})
 		if len(result) == 1 {
 			err = errors.New(result[0].(string))
@@ -195,16 +199,8 @@ func redisSet(ctx context.Context, c *redis.Client, key string, value string, ve
 }
 
 func RedisLoadGet(ctx context.Context, c *redis.Client, key string, version int, v string) (value string, ver int, err error) {
-	shaOnce.Do(func() {
-		err = InitScriptSha(ctx, c)
-	})
-
-	if err != nil {
-		return value, version, err
-	}
-
 	var r interface{}
-	if r, err = c.EvalSha(ctx, scriptLoadGetSha, []string{key}, version, v).Result(); err == nil || err == redis.Nil {
+	if r, err = loadget.eval(ctx, c, []string{key}, version, v); err == nil {
 		result := r.([]interface{})
 		if len(result) == 1 {
 			err = errors.New(result[0].(string))
@@ -217,32 +213,11 @@ func RedisLoadGet(ctx context.Context, c *redis.Client, key string, version int,
 }
 
 func RedisLoadSet(ctx context.Context, c *redis.Client, key string, version int, value string) (err error) {
-	shaOnce.Do(func() {
-		err = InitScriptSha(ctx, c)
-	})
-
-	if err != nil {
-		return err
-	}
-
-	if _, err = c.EvalSha(ctx, scriptLoadSetSha, []string{key}, version, value).Result(); err == nil || err == redis.Nil {
-		err = nil
-	}
-
+	_, err = loadset.eval(ctx, c, []string{key}, version, value)
 	return err
 }
 
 func RedisClearDirty(ctx context.Context, c *redis.Client, key string, version int) (err error) {
-	shaOnce.Do(func() {
-		err = InitScriptSha(ctx, c)
-	})
-
-	if err != nil {
-		return err
-	}
-
-	if _, err = c.EvalSha(ctx, scriptClearDirtySha, []string{dirtyKey, key}, version).Result(); err == nil || err == redis.Nil {
-		err = nil
-	}
+	_, err = cleardirty.eval(ctx, c, []string{dirtyKey, key}, version)
 	return err
 }
