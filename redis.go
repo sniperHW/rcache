@@ -2,8 +2,11 @@ package rcache
 
 import (
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	redis "github.com/redis/go-redis/v9"
@@ -16,16 +19,13 @@ type script struct {
 	sha string
 }
 
-func newScript(ctx context.Context, c *redis.Client, src string) (*script, error) {
-	s := &script{
+func newScript(src string) *script {
+	h := sha1.New()
+	_, _ = io.WriteString(h, src)
+	return &script{
 		src: src,
+		sha: hex.EncodeToString(h.Sum(nil)),
 	}
-	return s, s.load(ctx, c)
-}
-
-func (s *script) load(ctx context.Context, c *redis.Client) (err error) {
-	s.sha, err = c.ScriptLoad(ctx, s.src).Result()
-	return err
 }
 
 func (s *script) eval(ctx context.Context, c *redis.Client, keys []string, args ...interface{}) (result interface{}, err error) {
@@ -33,6 +33,7 @@ func (s *script) eval(ctx context.Context, c *redis.Client, keys []string, args 
 	if err != nil && strings.Contains(err.Error(), "NOSCRIPT") {
 		result, err = c.Eval(ctx, s.src, keys, args...).Result()
 	}
+	//fmt.Println(s.src, err)
 	return
 }
 
@@ -134,33 +135,16 @@ var (
 	cleardirty *script
 )
 
-func InitScript(ctx context.Context, c *redis.Client) (err error) {
-	set, err = newScript(ctx, c, scriptSet)
-	if err != nil {
-		return err
-	}
+func InitScript() {
+	set = newScript(scriptSet)
 
-	get, err = newScript(ctx, c, fmt.Sprintf(scriptGet, cacheTimeout))
-	if err != nil {
-		return err
-	}
+	get = newScript(fmt.Sprintf(scriptGet, cacheTimeout))
 
-	loadset, err = newScript(ctx, c, fmt.Sprintf(scriptLoadSet, cacheTimeout))
-	if err != nil {
-		return err
-	}
+	loadset = newScript(fmt.Sprintf(scriptLoadSet, cacheTimeout))
 
-	loadget, err = newScript(ctx, c, fmt.Sprintf(scriptLoadGet, cacheTimeout))
-	if err != nil {
-		return err
-	}
+	loadget = newScript(fmt.Sprintf(scriptLoadGet, cacheTimeout))
 
-	cleardirty, err = newScript(ctx, c, fmt.Sprintf(scriptClearDirty, cacheTimeout))
-	if err != nil {
-		return err
-	}
-
-	return err
+	cleardirty = newScript(fmt.Sprintf(scriptClearDirty, cacheTimeout))
 }
 
 func RedisGet(ctx context.Context, c *redis.Client, key string) (value string, version int, err error) {
@@ -213,11 +197,15 @@ func RedisLoadGet(ctx context.Context, c *redis.Client, key string, version int,
 }
 
 func RedisLoadSet(ctx context.Context, c *redis.Client, key string, version int, value string) (err error) {
-	_, err = loadset.eval(ctx, c, []string{key}, version, value)
+	if _, err = loadset.eval(ctx, c, []string{key}, version, value); err == redis.Nil {
+		err = nil
+	}
 	return err
 }
 
 func RedisClearDirty(ctx context.Context, c *redis.Client, key string, version int) (err error) {
-	_, err = cleardirty.eval(ctx, c, []string{dirtyKey, key}, version)
+	if _, err = cleardirty.eval(ctx, c, []string{dirtyKey, key}, version); err == redis.Nil {
+		err = nil
+	}
 	return err
 }
