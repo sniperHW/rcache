@@ -66,15 +66,19 @@ const scriptGet string = `
 	local value = v[2]
 	if not version then
 		return {'err_not_in_redis'}
-	elseif tonumber(version) == 0 then
-		return {'err_not_exist'}
 	else
 		local ttl = redis.call('ttl',KEYS[1])
 		if tonumber(ttl) > 0 then
 			redis.call('Expire',KEYS[1],cacheTimeout)
 		end
-		return {'err_ok',value,tonumber(version)}
+		
+		if tonumber(version) == 0 then
+			return {'err_not_exist'}
+		else
+			return {'err_ok',value,tonumber(version)}
+		end	
 	end
+
 `
 
 const scriptClearDirty string = `
