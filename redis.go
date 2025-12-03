@@ -27,7 +27,7 @@ func newScript(src string) *script {
 	}
 }
 
-func (s *script) eval(ctx context.Context, c *redis.Client, keys []string, args ...interface{}) (result interface{}, err error) {
+func (s *script) eval(ctx context.Context, c *redis.Client, keys []string, args ...any) (result any, err error) {
 	result, err = c.EvalSha(ctx, s.sha, keys, args...).Result()
 	if err != nil && strings.Contains(err.Error(), "NOSCRIPT") {
 		result, err = c.Eval(ctx, s.src, keys, args...).Result()
@@ -160,9 +160,9 @@ func RedisGet(ctx context.Context, c *redis.Client, key string, cacheTimeout ...
 		cacheTime = cacheTimeout[0]
 	}
 
-	var re interface{}
+	var re any
 	if re, err = get.eval(ctx, c, []string{key}, cacheTime); err == nil {
-		result := re.([]interface{})
+		result := re.([]any)
 		if len(result) == 1 {
 			err = errors.New(result[0].(string))
 		} else {
@@ -204,9 +204,9 @@ func RedisLoadGet(ctx context.Context, c *redis.Client, key string, version int,
 	if len(cacheTimeout) > 0 {
 		cacheTime = cacheTimeout[0]
 	}
-	var r interface{}
+	var r any
 	if r, err = loadget.eval(ctx, c, []string{key}, version, v, cacheTime); err == nil {
-		result := r.([]interface{})
+		result := r.([]any)
 		if len(result) == 1 {
 			err = errors.New(result[0].(string))
 		} else {

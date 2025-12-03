@@ -7,6 +7,21 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
+/*
+-- public.kv definition
+
+-- Drop table
+
+-- DROP TABLE public.kv;
+
+CREATE TABLE public.kv (
+	"key" varchar NOT NULL,
+	value varchar NOT NULL,
+	"version" int4 NOT NULL,
+	CONSTRAINT kv_pk PRIMARY KEY (key)
+);
+*/
+
 func queryRow(ctx context.Context, dbc *sqlx.DB, key string) (version int, value string, err error) {
 	err = dbc.QueryRowContext(ctx, "select version,value from kv where key = $1", key).Scan(&version, &value)
 	return version, value, err
