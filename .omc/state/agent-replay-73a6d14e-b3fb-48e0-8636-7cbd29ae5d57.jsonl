@@ -1,0 +1,5 @@
+{"t":0,"agent":"system","event":"skill_invoked","skill_name":"hello"}
+{"t":0,"agent":"afcd338","agent_type":"unknown","event":"agent_stop","success":true}
+{"t":0,"agent":"ab07ec6","agent_type":"unknown","event":"agent_stop","success":true}
+{"t":0,"agent":"ab35438","agent_type":"unknown","event":"agent_stop","success":true}
+{"t":0,"agent":"af7fdfc","agent_type":"unknown","event":"agent_stop","success":true}

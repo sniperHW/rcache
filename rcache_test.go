@@ -100,6 +100,30 @@ func TestRedisLoadSet(t *testing.T) {
 	fmt.Println(cli.Del(context.Background(), "hello").Result())
 }
 
+func TestDBSet(t *testing.T) {
+	dbc, err := sqlx.Open("postgres", "host=localhost port=5432 dbname=test user=postgres password=802802 sslmode=disable")
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cli := initRedis()
+
+	dbc.ExecContext(context.TODO(), "delete from kv;")
+	cli.FlushAll(context.TODO()).Result()
+
+	defer dbc.Close()
+
+	proxy := NewDataProxy(cli, dbc)
+
+	ver, err := proxy.Set(context.TODO(), "hello", "world")
+	fmt.Println(ver, err)
+	cli.FlushAll(context.TODO()).Result()
+
+	ver, err = proxy.SetWithVersion(context.TODO(), "hello", "world", ver)
+	fmt.Println(ver, err)
+}
+
 func TestRedisSet(t *testing.T) {
 	cli := initRedis()
 

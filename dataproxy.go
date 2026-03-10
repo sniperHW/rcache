@@ -74,40 +74,47 @@ func (p *DataProxy) Get(ctx context.Context, key string, cacheTimeout ...int) (v
 	return value, ver, err
 }
 
+func (p *DataProxy) checkError(ctx context.Context, cancel context.CancelFunc, err error) error {
+	select {
+	case <-ctx.Done():
+		err = ctx.Err()
+	default:
+	}
+	cancel()
+	return err
+}
+
 func (p *DataProxy) SyncDirtyToDB(ctx context.Context) error {
 	cursor := uint64(0)
 	var keys []string
 	var err error
 
 	for {
-		keys, cursor, err = p.redisC.HScan(ctx, dirtyKey, cursor, "", 100).Result()
-		if err != nil {
+		cc, cancel := context.WithTimeout(ctx, time.Second)
+		keys, cursor, err = p.redisC.HScan(cc, dirtyKey, cursor, "", 100).Result()
+		if err = p.checkError(cc, cancel, err); err != nil {
 			return err
 		}
+
 		for i := 0; i < len(keys); i = i + 2 {
 			key := keys[i]
-			r, err := p.redisC.HMGet(ctx, key, "version", "value").Result()
-			if err != nil {
+			cc, cancel = context.WithTimeout(ctx, time.Second)
+			r, err := p.redisC.HMGet(cc, key, "version", "value").Result()
+			if err = p.checkError(cc, cancel, err); err != nil {
 				return err
 			}
 			version, _ := strconv.Atoi(r[0].(string))
 			value := r[1].(string)
-			ctx, cancel := context.WithTimeout(context.TODO(), time.Second)
-			defer cancel()
-
-			err = writebackPgsql(ctx, p.dbc, key, value, version)
-
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			default:
-				if err != nil {
-					return err
-				}
+			cc, cancel = context.WithTimeout(ctx, time.Second)
+			err = writebackPgsql(cc, p.dbc, key, value, version)
+			if err = p.checkError(cc, cancel, err); err != nil {
+				return err
 			}
+
 			//清除dirty标记
-			err = RedisClearDirty(ctx, p.redisC, key, version)
-			if err != nil {
+			cc, cancel = context.WithTimeout(ctx, time.Second)
+			err = RedisClearDirty(cc, p.redisC, key, version)
+			if err = p.checkError(cc, cancel, err); err != nil {
 				return err
 			}
 		}

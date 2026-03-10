@@ -28,7 +28,7 @@ func queryRow(ctx context.Context, dbc *sqlx.DB, key string) (version int, value
 }
 
 func updateRowPgsql(ctx context.Context, dbc *sqlx.DB, key string, value string, verison int) (ver int, err error) {
-	const str = `UPDATE SET value = $2,version = kv.version+1 where kv.key = $1 and kv.version = $3;`
+	const str = `UPDATE kv SET value = $2,version = kv.version+1 where kv.key = $1 and kv.version = $3;`
 	_, err = dbc.ExecContext(ctx, str, key, value, verison)
 	if err != nil {
 		return ver, err
