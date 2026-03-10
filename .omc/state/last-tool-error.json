@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"GOCACHE=$(mktemp -d) go test -run=TestDBSet -v\",\"description\":\"Run test with fresh temporary cache\"}",
-  "error": "Exit code 1\n# internal/goos\ncompile: version \"go1.25.1\" does not match go tool version \"go1.26.0\"\n# internal/coverage/rtcov\ncompile: version \"go1.25.1\" does not match go tool version \"go1.26.0\"\n# internal/godebugs\ncompile: version \"go1.25.1\" does not match go tool version \"go1.26.0\"\n# internal/profilerecord\ncompile: version \"go1.25.1\" does not match go tool version \"go1.26.0\"\n# unicode/utf8\ncompile: version \"go1.25.1\" does not match go tool version \"go1.26.0\"\n# internal/byteorder\ncompile: versio...",
-  "timestamp": "2026-03-10T01:40:57.888Z",
-  "retry_count": 5
-}
