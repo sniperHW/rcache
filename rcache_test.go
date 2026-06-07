@@ -22,7 +22,6 @@ func initRedis() *redis.Client {
 	cli := redis.NewClient(&redis.Options{
 		Addr: "localhost:6379",
 	})
-	InitScript()
 	return cli
 }
 

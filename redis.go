@@ -48,12 +48,12 @@ const scriptSet string = `
         if input_version > 0 and version ~= input_version then
 			redis.call('Expire',KEYS[1],cacheTimeout)
 			return {'err_version_not_match'}
-		end	   
+		end
 		version = version + 1
 		redis.call('hmset',KEYS[1],'version',version,'value',ARGV[1],'__cache_timeout__',cacheTimeout)
 		--清除ttl
 		redis.call('PERSIST',KEYS[1])
-		
+
 		--设置dirty
 		redis.call('hset',KEYS[2], KEYS[1],version)
 		return {'err_ok',version}
@@ -71,12 +71,12 @@ const scriptGet string = `
 		if not v[3] then
 			redis.call('Expire',KEYS[1],cacheTimeout)
 		end
-		
+
 		if tonumber(version) == 0 then
 			return {'err_not_exist'}
 		else
 			return {'err_ok',value,tonumber(version)}
-		end	
+		end
 	end
 
 `
@@ -107,18 +107,18 @@ const scriptLoadGet string = `
 
 		if tonumber(version) > 0 then
 			return {'err_ok',value,tonumber(version)}
-		else 
+		else
 			return {'err_not_exist'}
 		end
 	else
 		if tonumber(ARGV[1]) > 0 then
 			redis.call('hmset',KEYS[1],'version',ARGV[1],'value',ARGV[2])
 			redis.call('Expire',KEYS[1],cacheTimeout)
-			return {'err_ok',ARGV[2],tonumber(ARGV[1])}	
+			return {'err_ok',ARGV[2],tonumber(ARGV[1])}
 		else
 			redis.call('hmset',KEYS[1],'version',ARGV[1])
 			redis.call('Expire',KEYS[1],cacheTimeout)
-			return {'err_not_exist'}				
+			return {'err_not_exist'}
 		end
 	end
 `
@@ -134,24 +134,12 @@ const scriptLoadSet string = `
 `
 
 var (
-	set        *script
-	get        *script
-	loadset    *script
-	loadget    *script
-	cleardirty *script
-)
-
-func InitScript() {
-	set = newScript(scriptSet)
-
-	get = newScript(scriptGet)
-
-	loadset = newScript(scriptLoadSet)
-
-	loadget = newScript(scriptLoadGet)
-
+	set        = newScript(scriptSet)
+	get        = newScript(scriptGet)
+	loadset    = newScript(scriptLoadSet)
+	loadget    = newScript(scriptLoadGet)
 	cleardirty = newScript(scriptClearDirty)
-}
+)
 
 func RedisGet(ctx context.Context, c *redis.Client, key string, cacheTimeout ...int) (value string, version int, err error) {
 
@@ -187,9 +175,9 @@ func redisSet(ctx context.Context, c *redis.Client, key string, value string, ve
 		cacheTime = cacheTimeout[0]
 	}
 
-	var re interface{}
+	var re any
 	if re, err = set.eval(ctx, c, []string{key, dirtyKey}, value, version, cacheTime); err == nil {
-		result := re.([]interface{})
+		result := re.([]any)
 		if len(result) == 1 {
 			err = errors.New(result[0].(string))
 		} else {
